@@ -1,0 +1,6 @@
+html, body, #root { min-height: 100%; }
+body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", "Segoe UI", sans-serif; }
+button, input, textarea, select { font-family: inherit; }
+@media (orientation: landscape) {
+  body { background: #f8fafc; }
+}
