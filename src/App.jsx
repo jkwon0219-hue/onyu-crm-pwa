@@ -81,7 +81,6 @@ const emptyCustomer = () => ({
   next: addDays(7),
   topic: '',
   memo: '',
-  review: '',
   tags: [],
   score: 30,
   count: 0,
@@ -103,7 +102,6 @@ const sampleCustomers = () => [
     next: today(),
     topic: '보험금 청구 사례 공유',
     memo: '소개 가능성 높음. 가족 보험도 관심 있음.',
-    review: '',
     tags: ['소개 가능', '가족 확장'],
     score: 74,
     count: 8,
@@ -126,7 +124,6 @@ const sampleCustomers = () => [
     next: addDays(3),
     topic: '갱신 보험료 점검',
     memo: '보험료 부담 언급. 무리한 권유 느낌 주면 안 됨.',
-    review: '',
     tags: ['보험료 부담'],
     score: 46,
     count: 3,
@@ -146,7 +143,6 @@ const sampleCustomers = () => [
     next: addDays(7),
     topic: '오랜만의 안부',
     memo: '오래 연락 안 됨. 솔직 담백형 메시지 추천.',
-    review: '',
     tags: ['휴면'],
     score: 18,
     count: 0,
@@ -334,7 +330,6 @@ function CustomerEditor({ mode, form, setForm, familyDraft, setFamilyDraft, onSa
         <input className="rounded-2xl border p-3" placeholder="다음 연락일 YYYY-MM-DD" value={form.next} onChange={(e) => setForm({ ...form, next: e.target.value })} />
         <input className="rounded-2xl border p-3 md:col-span-2" placeholder="태그 쉼표 구분" value={form.tagText || ''} onChange={(e) => setForm({ ...form, tagText: e.target.value })} />
         <textarea className="min-h-[80px] rounded-2xl border p-3 md:col-span-2" placeholder="고객 메모" value={form.memo} onChange={(e) => setForm({ ...form, memo: e.target.value })} />
-        <textarea className="min-h-[80px] rounded-2xl border p-3 md:col-span-2" placeholder="상담후기" value={form.review || ''} onChange={(e) => setForm({ ...form, review: e.target.value })} />
       </div>
 
       <div className="mt-5 rounded-3xl bg-slate-50 p-4">
@@ -373,6 +368,7 @@ function CustomerEditor({ mode, form, setForm, familyDraft, setFamilyDraft, onSa
 function LogManager({ customer, logDraft, setLogDraft, onAdd, onDelete, onEdit, editingLogId, onCancelEdit }) {
   const [page, setPage] = useState(1);
   const [logSearch, setLogSearch] = useState("");
+  const [logOpen, setLogOpen] = useState(false);
   const logs = customer.logs || [];
   const keyword = logSearch.trim().toLowerCase();
 
@@ -388,7 +384,7 @@ function LogManager({ customer, logDraft, setLogDraft, onAdd, onDelete, onEdit, 
       })
     : logs;
 
-  const perPage = 5;
+  const perPage = 3;
   const total = Math.max(1, Math.ceil(filteredLogs.length / perPage));
   const safe = Math.min(page, total);
   const pageLogs = filteredLogs.slice((safe - 1) * perPage, safe * perPage);
@@ -396,6 +392,7 @@ function LogManager({ customer, logDraft, setLogDraft, onAdd, onDelete, onEdit, 
   useEffect(() => {
     setPage(1);
     setLogSearch("");
+    setLogOpen(false);
   }, [customer.id]);
 
   useEffect(() => {
@@ -404,69 +401,84 @@ function LogManager({ customer, logDraft, setLogDraft, onAdd, onDelete, onEdit, 
 
   return (
     <Card>
-      <div className="mb-3 flex items-center justify-between">
-        <h2 className="font-black">문자/연락 기록</h2>
-        <Badge color="purple">{keyword ? `${filteredLogs.length}/${logs.length}건` : `${logs.length}건`}</Badge>
-      </div>
+      <button
+        type="button"
+        onClick={() => setLogOpen(!logOpen)}
+        className="mb-3 flex w-full items-center justify-between rounded-2xl bg-slate-50 p-3 text-left"
+      >
+        <span className="font-black">문자/연락 기록</span>
+        <span className="flex items-center gap-2">
+          <Badge color="purple">{keyword && logOpen ? `${filteredLogs.length}/${logs.length}건` : `${logs.length}건`}</Badge>
+          <span className="text-xs font-bold text-slate-500">{logOpen ? "접기" : "펼치기"}</span>
+        </span>
+      </button>
 
-      <input
-        className="mb-3 w-full rounded-2xl border p-3 text-sm"
-        placeholder="날짜, 시간, 구분, 내용으로 검색 예: 2026-05, 14:30, 통화, 소개"
-        value={logSearch}
-        onChange={(e) => setLogSearch(e.target.value)}
-      />
+      {!logOpen ? (
+        <p className="rounded-2xl bg-slate-50 p-3 text-sm text-slate-500">
+          문자/연락 기록 {logs.length}건이 저장되어 있습니다. 자세히 보거나 추가하려면 펼치기를 눌러주세요.
+        </p>
+      ) : (
+        <>
+          <input
+            className="mb-3 w-full rounded-2xl border p-3 text-sm"
+            placeholder="날짜, 시간, 구분, 내용으로 검색 예: 2026-05, 14:30, 통화, 소개"
+            value={logSearch}
+            onChange={(e) => setLogSearch(e.target.value)}
+          />
 
-      <div className="grid gap-2 md:grid-cols-5">
-        <input className="rounded-2xl border p-3" value={logDraft.date} onChange={(e) => setLogDraft({ ...logDraft, date: e.target.value })} />
-        <div className="rounded-2xl border bg-slate-50 p-3 text-sm">
-          <p className="text-xs text-slate-400">자동 시간</p>
-          <p className="font-bold">{nowTime()}</p>
-        </div>
-        <select className="rounded-2xl border p-3 md:col-span-3" value={logDraft.kind} onChange={(e) => setLogDraft({ ...logDraft, kind: e.target.value })}>
-          <option>문자</option>
-          <option>통화</option>
-          <option>상담</option>
-          <option>소개요청</option>
-          <option>기타</option>
-        </select>
-        <textarea className="min-h-[80px] rounded-2xl border p-3 md:col-span-5" placeholder="내용" value={logDraft.content} onChange={(e) => setLogDraft({ ...logDraft, content: e.target.value })} />
-      </div>
-
-      <div className="mt-3 flex gap-2">
-        <Button onClick={onAdd} className="flex-1">{editingLogId ? "기록 수정 저장" : "기록 추가"}</Button>
-        {editingLogId ? <Button light onClick={onCancelEdit}>수정 취소</Button> : null}
-      </div>
-
-      <div className="mt-4 space-y-2">
-        {logs.length === 0 ? (
-          <p className="rounded-2xl bg-slate-50 p-3 text-sm text-slate-500">아직 저장된 기록이 없습니다.</p>
-        ) : filteredLogs.length === 0 ? (
-          <p className="rounded-2xl bg-slate-50 p-3 text-sm text-slate-500">검색 결과가 없습니다.</p>
-        ) : (
-          pageLogs.map((log) => (
-            <div key={log.id} className="rounded-2xl bg-slate-50 p-3 text-sm">
-              <div className="flex justify-between gap-3">
-                <div>
-                  <b>{log.date} {log.time || ""} · {log.kind}</b>
-                  <p className="mt-1 whitespace-pre-wrap text-slate-600">{log.content}</p>
-                </div>
-                <div className="flex flex-col gap-2">
-                  <button type="button" className="text-xs font-bold text-blue-600" onClick={() => onEdit(log)}>수정</button>
-                  <button type="button" className="text-xs font-bold text-slate-500" onClick={() => onDelete(log.id)}>삭제</button>
-                </div>
-              </div>
+          <div className="grid gap-2 md:grid-cols-5">
+            <input className="rounded-2xl border p-3" value={logDraft.date} onChange={(e) => setLogDraft({ ...logDraft, date: e.target.value })} />
+            <div className="rounded-2xl border bg-slate-50 p-3 text-sm">
+              <p className="text-xs text-slate-400">자동 시간</p>
+              <p className="font-bold">{nowTime()}</p>
             </div>
-          ))
-        )}
-      </div>
+            <select className="rounded-2xl border p-3 md:col-span-3" value={logDraft.kind} onChange={(e) => setLogDraft({ ...logDraft, kind: e.target.value })}>
+              <option>문자</option>
+              <option>통화</option>
+              <option>상담</option>
+              <option>소개요청</option>
+              <option>기타</option>
+            </select>
+            <textarea className="min-h-[80px] rounded-2xl border p-3 md:col-span-5" placeholder="내용" value={logDraft.content} onChange={(e) => setLogDraft({ ...logDraft, content: e.target.value })} />
+          </div>
 
-      {filteredLogs.length > perPage ? (
-        <div className="mt-4 flex items-center justify-between rounded-2xl bg-white p-2 text-sm">
-          <Button light onClick={() => setPage(Math.max(1, safe - 1))}>이전</Button>
-          <b>{safe} / {total} 페이지</b>
-          <Button light onClick={() => setPage(Math.min(total, safe + 1))}>다음</Button>
-        </div>
-      ) : null}
+          <div className="mt-3 flex gap-2">
+            <Button onClick={onAdd} className="flex-1">{editingLogId ? "기록 수정 저장" : "기록 추가"}</Button>
+            {editingLogId ? <Button light onClick={onCancelEdit}>수정 취소</Button> : null}
+          </div>
+
+          <div className="mt-4 space-y-2">
+            {logs.length === 0 ? (
+              <p className="rounded-2xl bg-slate-50 p-3 text-sm text-slate-500">아직 저장된 기록이 없습니다.</p>
+            ) : filteredLogs.length === 0 ? (
+              <p className="rounded-2xl bg-slate-50 p-3 text-sm text-slate-500">검색 결과가 없습니다.</p>
+            ) : (
+              pageLogs.map((log) => (
+                <div key={log.id} className="rounded-2xl bg-slate-50 p-3 text-sm">
+                  <div className="flex justify-between gap-3">
+                    <div>
+                      <b>{log.date} {log.time || ""} · {log.kind}</b>
+                      <p className="mt-1 whitespace-pre-wrap text-slate-600">{log.content}</p>
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      <button type="button" className="text-xs font-bold text-blue-600" onClick={() => onEdit(log)}>수정</button>
+                      <button type="button" className="text-xs font-bold text-slate-500" onClick={() => onDelete(log.id)}>삭제</button>
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+
+          {filteredLogs.length > perPage ? (
+            <div className="mt-4 flex items-center justify-between rounded-2xl bg-white p-2 text-sm">
+              <Button light onClick={() => setPage(Math.max(1, safe - 1))}>이전</Button>
+              <b>{safe} / {total} 페이지</b>
+              <Button light onClick={() => setPage(Math.min(total, safe + 1))}>다음</Button>
+            </div>
+          ) : null}
+        </>
+      )}
     </Card>
   );
 }
@@ -708,43 +720,124 @@ export default function App() {
   };
 
   const exportExcel = () => {
-    const rows = [];
+    const customerRows = customers.map((customer) => ({
+      고객ID: customer.id || '',
+      고객명: customer.name || '',
+      전화번호: customer.phone || '',
+      주민등록번호: customer.rrn || '',
+      나이: ageTextFromRrn(customer.rrn),
+      등급: customer.grade || '',
+      관계온도: typeof relationTempText === 'function' ? relationTempText(customer.score) : `${customer.score || 0}℃`,
+      상태: customer.status || '',
+      최초등록일: customer.registeredAt || '',
+      다음연락일: customer.next || '',
+      태그: (customer.tags || []).join(', '),
+      가족수: (customer.family || []).length,
+      문자연락기록수: (customer.logs || []).length,
+      최근기록: customer.lastAction || '',
+      메모: customer.memo || ''
+    }));
+
+    const familyRows = [];
     customers.forEach((customer) => {
-      const familyList = customer.family && customer.family.length ? customer.family : [{}];
-      const latestLog = (customer.logs || [])[0] || {};
-      familyList.forEach((family) => {
-        rows.push({
+      (customer.family || []).forEach((family) => {
+        familyRows.push({
+          고객ID: customer.id || '',
           고객명: customer.name || '',
-          전화번호: customer.phone || '',
-          주민등록번호: customer.rrn || '',
-          고객나이: ageTextFromRrn(customer.rrn),
-          등급: customer.grade || '',
-          관계온도: relationTempText(customer.score),
-          관계점수: relationTempText(customer.score),
-          상태: customer.status || '',
-          최초등록일: customer.registeredAt || '',
-          다음연락일: customer.next || '',
-          태그: (customer.tags || []).join(', '),
+          고객전화번호: customer.phone || '',
           가족관계: family.rel || '',
           가족명: family.name || '',
           가족주민번호: family.rrn || '',
           가족나이: ageTextFromRrn(family.rrn),
           가족전화번호: family.phone || '',
-          가족메모: family.memo || '',
-          최근연락일시: `${latestLog.date || ''} ${latestLog.time || ''}`.trim(),
-          최근연락구분: latestLog.kind || '',
-          최근연락내용: latestLog.content || '',
-          상담후기: customer.review || '',
-          메모: customer.memo || ''
+          가족메모: family.memo || ''
         });
       });
     });
 
-    const ws = XLSX.utils.json_to_sheet(rows);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, '고객정보');
-    XLSX.writeFile(wb, '고객정보_전체주민번호_가족분리_' + today() + '.xlsx');
-    setStatus('고객정보 엑셀 파일을 만들었습니다.');
+    const logRows = [];
+    customers.forEach((customer) => {
+      (customer.logs || []).forEach((log) => {
+        logRows.push({
+          고객ID: customer.id || '',
+          고객명: customer.name || '',
+          고객전화번호: customer.phone || '',
+          날짜: log.date || '',
+          시간: log.time || '',
+          구분: log.kind || '',
+          내용: log.content || ''
+        });
+      });
+    });
+
+    logRows.sort((a, b) => {
+      const aKey = `${a.날짜 || ''} ${a.시간 || ''} ${a.고객명 || ''}`;
+      const bKey = `${b.날짜 || ''} ${b.시간 || ''} ${b.고객명 || ''}`;
+      return bKey.localeCompare(aKey);
+    });
+
+    const workbook = XLSX.utils.book_new();
+
+    const customerSheet = XLSX.utils.json_to_sheet(customerRows.length ? customerRows : [{
+      고객ID: '',
+      고객명: '',
+      전화번호: '',
+      주민등록번호: '',
+      나이: '',
+      등급: '',
+      관계온도: '',
+      상태: '',
+      최초등록일: '',
+      다음연락일: '',
+      태그: '',
+      가족수: '',
+      문자연락기록수: '',
+      최근기록: '',
+      메모: ''
+    }]);
+
+    const familySheet = XLSX.utils.json_to_sheet(familyRows.length ? familyRows : [{
+      고객ID: '',
+      고객명: '',
+      고객전화번호: '',
+      가족관계: '',
+      가족명: '',
+      가족주민번호: '',
+      가족나이: '',
+      가족전화번호: '',
+      가족메모: ''
+    }]);
+
+    const logSheet = XLSX.utils.json_to_sheet(logRows.length ? logRows : [{
+      고객ID: '',
+      고객명: '',
+      고객전화번호: '',
+      날짜: '',
+      시간: '',
+      구분: '',
+      내용: ''
+    }]);
+
+    customerSheet['!cols'] = [
+      { wch: 12 }, { wch: 16 }, { wch: 16 }, { wch: 18 }, { wch: 12 },
+      { wch: 10 }, { wch: 12 }, { wch: 14 }, { wch: 14 }, { wch: 14 },
+      { wch: 24 }, { wch: 8 }, { wch: 14 }, { wch: 20 }, { wch: 36 }
+    ];
+    familySheet['!cols'] = [
+      { wch: 12 }, { wch: 16 }, { wch: 16 }, { wch: 12 }, { wch: 16 },
+      { wch: 18 }, { wch: 12 }, { wch: 16 }, { wch: 36 }
+    ];
+    logSheet['!cols'] = [
+      { wch: 12 }, { wch: 16 }, { wch: 16 }, { wch: 14 }, { wch: 10 },
+      { wch: 12 }, { wch: 60 }
+    ];
+
+    XLSX.utils.book_append_sheet(workbook, customerSheet, '고객정보');
+    XLSX.utils.book_append_sheet(workbook, familySheet, '가족정보');
+    XLSX.utils.book_append_sheet(workbook, logSheet, '문자연락기록');
+
+    XLSX.writeFile(workbook, '고객관리_전체내보내기_' + today() + '.xlsx');
+    setStatus('고객정보, 가족정보, 문자연락기록 전체를 엑셀로 내보냈습니다.');
   };
 
   const importExcel = async (event) => {
@@ -780,7 +873,6 @@ export default function App() {
             next: asText(row.다음연락일) || addDays(7),
             topic: '',
             tags: textToTags(row.태그),
-            review: asText(row.상담후기),
             memo: asText(row.메모),
             lastAction: '엑셀 가져오기',
             family: [],
@@ -1058,7 +1150,7 @@ export default function App() {
                   ))
                 )}
               </div>
-              <div className="mt-4"><p className="text-xs text-slate-400">상담후기</p><p className="whitespace-pre-wrap">{selected.review || '상담후기 없음'}</p></div>
+              
               <div className="mt-4"><p className="text-xs text-slate-400">메모</p><p>{selected.memo || '메모 없음'}</p><div className="mt-2 flex flex-wrap gap-2">{(selected.tags || []).map((t) => <Badge key={t}>#{t}</Badge>)}</div></div>
             </Card>
 
