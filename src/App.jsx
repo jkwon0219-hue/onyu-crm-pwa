@@ -24,6 +24,19 @@ const formatRrn = (value) => {
   if (digits.length > 6) return `${digits.slice(0, 6)}-${digits.slice(6, 13)}`;
   return digits;
 };
+const formatPhone = (value) => {
+  const digits = String(value || '').replace(/[^0-9]/g, '').slice(0, 11);
+  if (!digits) return '';
+  if (digits.startsWith('02')) {
+    if (digits.length <= 2) return digits;
+    if (digits.length <= 6) return `${digits.slice(0, 2)}-${digits.slice(2)}`;
+    if (digits.length <= 10) return `${digits.slice(0, 2)}-${digits.slice(2, digits.length - 4)}-${digits.slice(-4)}`;
+    return `${digits.slice(0, 2)}-${digits.slice(2, 7)}-${digits.slice(7, 11)}`;
+  }
+  if (digits.length <= 3) return digits;
+  if (digits.length <= 7) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
+  return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7, 11)}`;
+};
 const cleanPhone = (value) => String(value || '').replace(/[^0-9]/g, '');
 const cleanRrn = (value) => String(value || '').replace(/[^0-9]/g, '');
 const maskRrn = (value) => {
@@ -146,7 +159,8 @@ const sampleCustomers = () => [
 const normalizeCustomers = (list) => (Array.isArray(list) ? list : []).map((c) => ({
   ...emptyCustomer(),
   ...c,
-  family: (c.family || []).map((f) => ({ ...emptyFamily(), ...f })),
+  phone: formatPhone(c.phone),
+  family: (c.family || []).map((f) => ({ ...emptyFamily(), ...f, phone: formatPhone(f.phone) })),
   logs: c.logs || []
 }));
 
@@ -297,7 +311,7 @@ function CustomerEditor({ mode, form, setForm, familyDraft, setFamilyDraft, onSa
   const [editingFamilyId, setEditingFamilyId] = useState(null);
   const addFamily = () => {
     if (!familyDraft.name && !familyDraft.rrn && !familyDraft.phone && !familyDraft.memo) return;
-    const saved = { ...familyDraft, id: editingFamilyId || Date.now(), rrn: formatRrn(familyDraft.rrn) };
+    const saved = { ...familyDraft, id: editingFamilyId || Date.now(), rrn: formatRrn(familyDraft.rrn), phone: formatPhone(familyDraft.phone) };
     const nextFamily = editingFamilyId ? form.family.map((f) => f.id === editingFamilyId ? saved : f) : [...form.family, saved];
     setForm({ ...form, family: nextFamily });
     setFamilyDraft(emptyFamily());
@@ -308,12 +322,12 @@ function CustomerEditor({ mode, form, setForm, familyDraft, setFamilyDraft, onSa
     <Modal title={mode === 'add' ? '고객 추가' : '고객 수정'} onClose={onClose}>
       <div className="grid gap-3 md:grid-cols-2">
         <input className="rounded-2xl border p-3" placeholder="고객명" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-        <input className="rounded-2xl border p-3" placeholder="전화번호" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+        <input className="rounded-2xl border p-3" placeholder="전화번호" value={form.phone} onChange={(e) => setForm({ ...form, phone: formatPhone(e.target.value) })} />
         <div>
           <input className="w-full rounded-2xl border p-3" placeholder="주민등록번호 예: 840219-1234567" value={form.rrn || ''} onChange={(e) => setForm({ ...form, rrn: formatRrn(e.target.value) })} />
           <p className="mt-1 px-2 text-xs text-slate-500">자동 나이: {ageTextFromRrn(form.rrn)}</p>
         </div>
-        <input className="rounded-2xl border p-3" placeholder="연락 목적" value={form.topic} onChange={(e) => setForm({ ...form, topic: e.target.value })} />
+        <div><input type="date" className="w-full rounded-2xl border p-3" value={form.registeredAt || today()} onChange={(e) => setForm({ ...form, registeredAt: e.target.value })} /><p className="mt-1 px-2 text-xs text-slate-500">최초 등록일</p></div>
         <select className="rounded-2xl border p-3" value={form.grade} onChange={(e) => setForm({ ...form, grade: e.target.value })}><option>VIP</option><option>잠재</option><option>유지</option></select>
         <select className="rounded-2xl border p-3" value={form.temp} onChange={(e) => setForm({ ...form, temp: e.target.value })}><option>따뜻함</option><option>보통</option><option>차가움</option></select>
         <select className="rounded-2xl border p-3" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}><option>안부 필요</option><option>정보 전달</option><option>관계 회복</option><option>메시지 발송</option><option>통화 완료</option><option>상담 예약</option><option>소개 요청</option></select>
@@ -329,7 +343,7 @@ function CustomerEditor({ mode, form, setForm, familyDraft, setFamilyDraft, onSa
           <select className="rounded-2xl border bg-white p-3" value={familyDraft.rel} onChange={(e) => setFamilyDraft({ ...familyDraft, rel: e.target.value })}><option>배우자</option><option>자녀</option><option>부모님</option><option>형제자매</option><option>기타</option></select>
           <input className="rounded-2xl border bg-white p-3" placeholder="이름/호칭" value={familyDraft.name} onChange={(e) => setFamilyDraft({ ...familyDraft, name: e.target.value })} />
           <input className="rounded-2xl border bg-white p-3" placeholder="주민등록번호" value={familyDraft.rrn} onChange={(e) => setFamilyDraft({ ...familyDraft, rrn: formatRrn(e.target.value) })} />
-          <input className="rounded-2xl border bg-white p-3" placeholder="가족 전화번호" value={familyDraft.phone} onChange={(e) => setFamilyDraft({ ...familyDraft, phone: e.target.value })} />
+          <input className="rounded-2xl border bg-white p-3" placeholder="가족 전화번호" value={familyDraft.phone} onChange={(e) => setFamilyDraft({ ...familyDraft, phone: formatPhone(e.target.value) })} />
           <div className="rounded-2xl border bg-white p-3 text-sm"><p className="text-xs text-slate-400">자동 나이</p><p className="font-bold">{ageTextFromRrn(familyDraft.rrn)}</p></div>
           <textarea className="min-h-[60px] rounded-2xl border bg-white p-3 md:col-span-5" placeholder="가족 메모" value={familyDraft.memo} onChange={(e) => setFamilyDraft({ ...familyDraft, memo: e.target.value })} />
           <Button className="md:col-span-5" onClick={addFamily}>{editingFamilyId ? '가족 수정 저장' : '가족 추가'}</Button>
@@ -358,35 +372,101 @@ function CustomerEditor({ mode, form, setForm, familyDraft, setFamilyDraft, onSa
 
 function LogManager({ customer, logDraft, setLogDraft, onAdd, onDelete, onEdit, editingLogId, onCancelEdit }) {
   const [page, setPage] = useState(1);
+  const [logSearch, setLogSearch] = useState("");
   const logs = customer.logs || [];
+  const keyword = logSearch.trim().toLowerCase();
+
+  const filteredLogs = keyword
+    ? logs.filter((log) => {
+        const haystack = [
+          log.date || "",
+          log.time || "",
+          log.kind || "",
+          log.content || ""
+        ].join(" ").toLowerCase();
+        return haystack.includes(keyword);
+      })
+    : logs;
+
   const perPage = 5;
-  const total = Math.max(1, Math.ceil(logs.length / perPage));
+  const total = Math.max(1, Math.ceil(filteredLogs.length / perPage));
   const safe = Math.min(page, total);
-  const pageLogs = logs.slice((safe - 1) * perPage, safe * perPage);
-  useEffect(() => setPage(1), [customer.id]);
+  const pageLogs = filteredLogs.slice((safe - 1) * perPage, safe * perPage);
+
+  useEffect(() => {
+    setPage(1);
+    setLogSearch("");
+  }, [customer.id]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [logSearch]);
 
   return (
     <Card>
-      <div className="mb-3 flex items-center justify-between"><h2 className="font-black">문자/연락 기록</h2><Badge color="purple">{logs.length}건</Badge></div>
+      <div className="mb-3 flex items-center justify-between">
+        <h2 className="font-black">문자/연락 기록</h2>
+        <Badge color="purple">{keyword ? `${filteredLogs.length}/${logs.length}건` : `${logs.length}건`}</Badge>
+      </div>
+
+      <input
+        className="mb-3 w-full rounded-2xl border p-3 text-sm"
+        placeholder="날짜, 시간, 구분, 내용으로 검색 예: 2026-05, 14:30, 통화, 소개"
+        value={logSearch}
+        onChange={(e) => setLogSearch(e.target.value)}
+      />
+
       <div className="grid gap-2 md:grid-cols-5">
         <input className="rounded-2xl border p-3" value={logDraft.date} onChange={(e) => setLogDraft({ ...logDraft, date: e.target.value })} />
-        <div className="rounded-2xl border bg-slate-50 p-3 text-sm"><p className="text-xs text-slate-400">자동 시간</p><p className="font-bold">{nowTime()}</p></div>
-        <select className="rounded-2xl border p-3" value={logDraft.kind} onChange={(e) => setLogDraft({ ...logDraft, kind: e.target.value })}><option>문자</option><option>통화</option><option>상담</option><option>소개요청</option><option>기타</option></select>
-        <input className="rounded-2xl border p-3 md:col-span-2" placeholder="제목" value={logDraft.title} onChange={(e) => setLogDraft({ ...logDraft, title: e.target.value })} />
+        <div className="rounded-2xl border bg-slate-50 p-3 text-sm">
+          <p className="text-xs text-slate-400">자동 시간</p>
+          <p className="font-bold">{nowTime()}</p>
+        </div>
+        <select className="rounded-2xl border p-3 md:col-span-3" value={logDraft.kind} onChange={(e) => setLogDraft({ ...logDraft, kind: e.target.value })}>
+          <option>문자</option>
+          <option>통화</option>
+          <option>상담</option>
+          <option>소개요청</option>
+          <option>기타</option>
+        </select>
         <textarea className="min-h-[80px] rounded-2xl border p-3 md:col-span-5" placeholder="내용" value={logDraft.content} onChange={(e) => setLogDraft({ ...logDraft, content: e.target.value })} />
       </div>
-      <div className="mt-3 flex gap-2"><Button onClick={onAdd} className="flex-1">{editingLogId ? '기록 수정 저장' : '기록 추가'}</Button>{editingLogId ? <Button light onClick={onCancelEdit}>수정 취소</Button> : null}</div>
-      <div className="mt-4 space-y-2">
-        {logs.length === 0 ? <p className="rounded-2xl bg-slate-50 p-3 text-sm text-slate-500">아직 저장된 기록이 없습니다.</p> : pageLogs.map((log) => (
-          <div key={log.id} className="rounded-2xl bg-slate-50 p-3 text-sm">
-            <div className="flex justify-between gap-3">
-              <div><b>{log.date} {log.time || ''} · {log.kind} · {log.title || '제목 없음'}</b><p className="mt-1 whitespace-pre-wrap text-slate-600">{log.content}</p></div>
-              <div className="flex flex-col gap-2"><button type="button" className="text-xs font-bold text-blue-600" onClick={() => onEdit(log)}>수정</button><button type="button" className="text-xs font-bold text-slate-500" onClick={() => onDelete(log.id)}>삭제</button></div>
-            </div>
-          </div>
-        ))}
+
+      <div className="mt-3 flex gap-2">
+        <Button onClick={onAdd} className="flex-1">{editingLogId ? "기록 수정 저장" : "기록 추가"}</Button>
+        {editingLogId ? <Button light onClick={onCancelEdit}>수정 취소</Button> : null}
       </div>
-      {logs.length > perPage ? <div className="mt-4 flex items-center justify-between rounded-2xl bg-white p-2 text-sm"><Button light onClick={() => setPage(Math.max(1, safe - 1))}>이전</Button><b>{safe} / {total} 페이지</b><Button light onClick={() => setPage(Math.min(total, safe + 1))}>다음</Button></div> : null}
+
+      <div className="mt-4 space-y-2">
+        {logs.length === 0 ? (
+          <p className="rounded-2xl bg-slate-50 p-3 text-sm text-slate-500">아직 저장된 기록이 없습니다.</p>
+        ) : filteredLogs.length === 0 ? (
+          <p className="rounded-2xl bg-slate-50 p-3 text-sm text-slate-500">검색 결과가 없습니다.</p>
+        ) : (
+          pageLogs.map((log) => (
+            <div key={log.id} className="rounded-2xl bg-slate-50 p-3 text-sm">
+              <div className="flex justify-between gap-3">
+                <div>
+                  <b>{log.date} {log.time || ""} · {log.kind}</b>
+                  <p className="mt-1 whitespace-pre-wrap text-slate-600">{log.content}</p>
+                </div>
+                <div className="flex flex-col gap-2">
+                  <button type="button" className="text-xs font-bold text-blue-600" onClick={() => onEdit(log)}>수정</button>
+                  <button type="button" className="text-xs font-bold text-slate-500" onClick={() => onDelete(log.id)}>삭제</button>
+                </div>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      {filteredLogs.length > perPage ? (
+        <div className="mt-4 flex items-center justify-between rounded-2xl bg-white p-2 text-sm">
+          <Button light onClick={() => setPage(Math.max(1, safe - 1))}>이전</Button>
+          <b>{safe} / {total} 페이지</b>
+          <Button light onClick={() => setPage(Math.min(total, safe + 1))}>다음</Button>
+        </div>
+      ) : null}
     </Card>
   );
 }
@@ -400,6 +480,7 @@ export default function App() {
   const [quickFilter, setQuickFilter] = useState('전체');
   const [gradeFilter, setGradeFilter] = useState('전체');
   const [customerPage, setCustomerPage] = useState(1);
+  const [familyOpen, setFamilyOpen] = useState(false);
   const [template, setTemplate] = useState('관계회복');
   const [counselorName, setCounselorName] = useState('');
   const [modal, setModal] = useState(null);
@@ -472,6 +553,10 @@ export default function App() {
     setCustomerPage(1);
   }, [query, quickFilter, gradeFilter]);
 
+  useEffect(() => {
+    setFamilyOpen(false);
+  }, [selectedId]);
+
   if (!unlocked) return <LockScreen onLogin={handleLogin} />;
 
   const counselor = counselorName.trim() || '담당 상담사';
@@ -494,7 +579,7 @@ export default function App() {
 
   const saveCustomer = async () => {
     if (!form.name.trim()) { setStatus('고객명을 입력해 주세요.'); return; }
-    const saved = { ...form, rrn: formatRrn(form.rrn), tags: textToTags(form.tagText), family: form.family || [], logs: form.logs || [] };
+    const saved = { ...form, phone: formatPhone(form.phone), rrn: formatRrn(form.rrn), tags: textToTags(form.tagText), family: (form.family || []).map((family) => ({ ...family, phone: formatPhone(family.phone), rrn: formatRrn(family.rrn) })), logs: form.logs || [] };
     delete saved.tagText;
     if (modal === 'customer-add') {
       const start = saved.temp === '따뜻함' ? 55 : saved.temp === '차가움' ? 10 : 30;
@@ -557,7 +642,7 @@ export default function App() {
   };
 
   const addLog = async () => {
-    if (!logDraft.title.trim() && !logDraft.content.trim()) return;
+    if (!logDraft.content.trim()) return;
     const action = actionFromLogKind(logDraft.kind);
     if (editingLogId) {
       await setAndSave(customers.map((c) => {
@@ -565,7 +650,7 @@ export default function App() {
         return {
           ...c,
           logs: (c.logs || []).map((log) => log.id === editingLogId
-            ? { ...logDraft, id: editingLogId, time: logDraft.time || nowTime(), title: logDraft.title || action }
+            ? { ...logDraft, id: editingLogId, time: logDraft.time || nowTime(), title: '' }
             : log)
         };
       }));
@@ -577,13 +662,13 @@ export default function App() {
     await setAndSave(customers.map((c) => {
       if (c.id !== selected.id) return c;
       const score = Math.min(100, (c.score || 0) + gain(action));
-      const log = { ...logDraft, id: Date.now(), time: nowTime(), title: logDraft.title || action };
+      const log = { ...logDraft, id: Date.now(), time: nowTime(), title: '' };
       return { ...c, logs: [log, ...(c.logs || [])], status: action, next: nextDate(action), score, temp: nextTemp(score), count: (c.count || 0) + 1, lastAction: action };
     }));
     setLogDraft(emptyLog());
   };
 
-  const editLog = (log) => { setEditingLogId(log.id); setLogDraft({ ...emptyLog(), ...log }); setStatus('수정할 기록을 불러왔습니다.'); };
+  const editLog = (log) => { setEditingLogId(log.id); setLogDraft({ ...emptyLog(), ...log, title: '' }); setStatus('수정할 기록을 불러왔습니다.'); };
   const cancelEditLog = () => { setEditingLogId(null); setLogDraft(emptyLog()); setStatus(''); };
   const deleteLog = async (id) => {
     await setAndSave(customers.map((c) => c.id === selected.id ? { ...c, logs: (c.logs || []).filter((l) => l.id !== id) } : c));
@@ -607,7 +692,6 @@ export default function App() {
           상태: customer.status || '',
           최초등록일: customer.registeredAt || '',
           다음연락일: customer.next || '',
-          연락목적: customer.topic || '',
           태그: (customer.tags || []).join(', '),
           가족관계: family.rel || '',
           가족명: family.name || '',
@@ -617,7 +701,6 @@ export default function App() {
           가족메모: family.memo || '',
           최근연락일시: `${latestLog.date || ''} ${latestLog.time || ''}`.trim(),
           최근연락구분: latestLog.kind || '',
-          최근연락제목: latestLog.title || '',
           최근연락내용: latestLog.content || '',
           상담후기: customer.review || '',
           메모: customer.memo || ''
@@ -645,7 +728,7 @@ export default function App() {
       const grouped = new Map();
       rows.forEach((row, index) => {
         const name = asText(row.고객명);
-        const phone = asText(row.전화번호);
+        const phone = formatPhone(row.전화번호);
         const rrn = formatRrn(row.주민등록번호 || row['주민등록번호(마스킹)'] || '');
         if (!name && !phone && !rrn) return;
         const key = cleanRrn(rrn) || `${name}|${cleanPhone(phone)}` || String(index);
@@ -663,7 +746,7 @@ export default function App() {
             score: Number(String(row.관계점수 || '').replace(/[^0-9.]/g, '')) || 30,
             status: asText(row.상태) || '안부 필요',
             next: asText(row.다음연락일) || addDays(7),
-            topic: asText(row.연락목적),
+            topic: '',
             tags: textToTags(row.태그),
             review: asText(row.상담후기),
             memo: asText(row.메모),
@@ -676,16 +759,15 @@ export default function App() {
         const current = grouped.get(key);
         const latestAt = asText(row.최근연락일시);
         const latestKind = asText(row.최근연락구분);
-        const latestTitle = asText(row.최근연락제목);
         const latestContent = asText(row.최근연락내용);
-        if ((latestAt || latestKind || latestTitle || latestContent) && current.logs.length === 0) {
+        if ((latestAt || latestKind || latestContent) && current.logs.length === 0) {
           const [datePart, timePart] = latestAt.split(' ');
           current.logs.push({
             id: Date.now() + index + 500,
             date: datePart || today(),
             time: timePart || '',
             kind: latestKind || '기타',
-            title: latestTitle || latestKind || '엑셀 가져오기',
+            title: latestKind || '엑셀 가져오기',
             content: latestContent
           });
         }
@@ -695,7 +777,7 @@ export default function App() {
           rel: asText(row.가족관계) || '기타',
           name: asText(row.가족명),
           rrn: formatRrn(row.가족주민번호 || ''),
-          phone: asText(row.가족전화번호),
+          phone: formatPhone(row.가족전화번호),
           memo: asText(row.가족메모)
         };
         if (family.rel !== '기타' || family.name || family.rrn || family.phone || family.memo) {
@@ -734,21 +816,6 @@ export default function App() {
       setStatus('엑셀 가져오기 실패: 파일 형식이나 열 이름을 확인해 주세요.');
     }
     event.target.value = '';
-  };
-
-  const importBackup = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    try {
-      const payload = await decryptObject(JSON.parse(await file.text()), sessionPassword);
-      const list = normalizeCustomers(payload.customers || []);
-      await setAndSave(list);
-      setSelectedId(list[0]?.id || null);
-      setStatus('복원이 완료되었습니다.');
-    } catch {
-      setStatus('복원 실패: 암호가 다르거나 파일이 손상되었습니다.');
-    }
-    e.target.value = '';
   };
 
   const savePassword = async () => {
@@ -806,7 +873,7 @@ export default function App() {
               
               <Button light onClick={exportExcel}>엑셀 내보내기</Button>
               <label className="cursor-pointer rounded-2xl border bg-white px-4 py-2.5 text-sm font-bold text-slate-700">엑셀 가져오기<input type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={importExcel} /></label>
-              <label className="cursor-pointer rounded-2xl border bg-white px-4 py-2.5 text-sm font-bold text-slate-700">복원<input type="file" accept="application/json" className="hidden" onChange={importBackup} /></label>
+              
               <Button light onClick={lockApp}>잠금</Button>
               <Button light onClick={() => { setNewPw(''); setNewPw2(''); setModal('password'); }}>암호 변경</Button>
               
@@ -853,8 +920,28 @@ export default function App() {
                 <div className="flex flex-wrap gap-1.5"><SmallButton light onClick={() => recordAction('통화 완료')}>☎ 통화 완료</SmallButton><SmallButton onClick={openAppointment}>📅 상담 예약</SmallButton><SmallButton light onClick={openEdit}>✏️ 고객 수정</SmallButton><SmallButton light onClick={() => setModal('delete')}>🗑 고객 삭제</SmallButton></div>
               </div>
               <div className="mt-4 rounded-2xl bg-slate-50 p-4"><div className="flex justify-between"><div><p className="text-sm text-slate-500">관계온도</p><h3 className="text-xl font-black">{d[0]} {d[1]}</h3><p className="text-sm text-slate-500">{d[2]}</p></div><b className="text-3xl">{relationTempText(selected.score)}</b></div><div className="mt-3 h-3 rounded-full bg-white"><div className="h-3 rounded-full bg-slate-900" style={{ width: Math.min(100, selected.score || 0) + '%' }} /></div></div>
-              <div className="mt-4 grid gap-3 md:grid-cols-2"><Info title="연락 목적" value={selected.topic || '미입력'} /><Info title="다음 연락일" value={selected.next} /><Info title="최초 등록일" value={selected.registeredAt || '미입력'} /><Info title="고객 주민등록번호" value={maskRrn(selected.rrn)} sub={birthFromRrn(selected.rrn) ? birthFromRrn(selected.rrn) + ' · ' + ageTextFromRrn(selected.rrn) : '나이 자동 계산 대기'} /><Info title="최근 기록" value={selected.lastAction || '-'} /></div>
-              <div className="mt-4"><div className="mb-2 flex justify-between"><h3 className="font-black">가족 정보</h3><Badge color="purple">{selected.family.length}명</Badge></div>{selected.family.length === 0 ? <p className="rounded-2xl bg-slate-50 p-3 text-sm text-slate-500">등록된 가족 정보가 없습니다.</p> : selected.family.map((f) => <div key={f.id} className="mb-2 rounded-2xl bg-slate-50 p-3"><b>{f.rel} · {f.name || '이름 미입력'} · {ageTextFromRrn(f.rrn)}</b><p className="text-sm text-slate-500">생년월일 {birthFromRrn(f.rrn) || '미입력'}</p><p className="text-sm text-slate-500">주민등록번호 {maskRrn(f.rrn)}</p><p className="text-sm text-slate-500">전화번호 {f.phone || '미입력'}</p><p className="text-sm">{f.memo || '메모 없음'}</p></div>)}</div>
+              <div className="mt-4 grid gap-3 md:grid-cols-2"><Info title="최초 등록일" value={selected.registeredAt || '미입력'} /><Info title="다음 연락일" value={selected.next} /><Info title="고객 주민등록번호" value={maskRrn(selected.rrn)} sub={birthFromRrn(selected.rrn) ? birthFromRrn(selected.rrn) + ' · ' + ageTextFromRrn(selected.rrn) : '나이 자동 계산 대기'} /><Info title="최근 기록" value={selected.lastAction || '-'} /></div>
+              <div className="mt-4">
+                <button type="button" onClick={() => setFamilyOpen(!familyOpen)} className="mb-2 flex w-full items-center justify-between rounded-2xl bg-slate-50 p-3 text-left">
+                  <span className="font-black">가족 정보</span>
+                  <span className="flex items-center gap-2"><Badge color="purple">{selected.family.length}명</Badge><span className="text-xs font-bold text-slate-500">{familyOpen ? '접기' : '펼치기'}</span></span>
+                </button>
+                {selected.family.length === 0 ? (
+                  <p className="rounded-2xl bg-slate-50 p-3 text-sm text-slate-500">등록된 가족 정보가 없습니다.</p>
+                ) : !familyOpen ? (
+                  <p className="rounded-2xl bg-slate-50 p-3 text-sm text-slate-500">가족 정보 {selected.family.length}명이 등록되어 있습니다. 자세히 보려면 펼치기를 눌러주세요.</p>
+                ) : (
+                  selected.family.map((f) => (
+                    <div key={f.id} className="mb-2 rounded-2xl bg-slate-50 p-3">
+                      <b>{f.rel} · {f.name || '이름 미입력'} · {ageTextFromRrn(f.rrn)}</b>
+                      <p className="text-sm text-slate-500">생년월일 {birthFromRrn(f.rrn) || '미입력'}</p>
+                      <p className="text-sm text-slate-500">주민등록번호 {maskRrn(f.rrn)}</p>
+                      <p className="text-sm text-slate-500">전화번호 {f.phone || '미입력'}</p>
+                      <p className="text-sm">{f.memo || '메모 없음'}</p>
+                    </div>
+                  ))
+                )}
+              </div>
               <div className="mt-4"><p className="text-xs text-slate-400">상담후기</p><p className="whitespace-pre-wrap">{selected.review || '상담후기 없음'}</p></div>
               <div className="mt-4"><p className="text-xs text-slate-400">메모</p><p>{selected.memo || '메모 없음'}</p><div className="mt-2 flex flex-wrap gap-2">{(selected.tags || []).map((t) => <Badge key={t}>#{t}</Badge>)}</div></div>
             </Card>
