@@ -39,6 +39,14 @@ const formatPhone = (value) => {
 };
 const cleanPhone = (value) => String(value || '').replace(/[^0-9]/g, '');
 const cleanRrn = (value) => String(value || '').replace(/[^0-9]/g, '');
+const hasRealCustomerIdentity = (customer) => {
+  return Boolean(
+    String(customer?.name || '').trim() ||
+    String(customer?.phone || '').replace(/[^0-9]/g, '') ||
+    String(customer?.rrn || '').replace(/[^0-9]/g, '')
+  );
+};
+
 const maskRrn = (value) => {
   const digits = cleanRrn(value);
   if (digits.length >= 7) return `${digits.slice(0, 6)}-${digits.slice(6, 7)}******`;
@@ -152,13 +160,21 @@ const sampleCustomers = () => [
   }
 ];
 
-const normalizeCustomers = (list) => (Array.isArray(list) ? list : []).map((c) => ({
-  ...emptyCustomer(),
-  ...c,
-  phone: formatPhone(c.phone),
-  family: (c.family || []).map((f) => ({ ...emptyFamily(), ...f, phone: formatPhone(f.phone) })),
-  logs: c.logs || []
-}));
+const normalizeCustomers = (list) => (Array.isArray(list) ? list : [])
+  .filter((customer) => hasRealCustomerIdentity(customer))
+  .map((c) => ({
+    ...emptyCustomer(),
+    ...c,
+    phone: typeof formatPhone === 'function' ? formatPhone(c.phone) : c.phone,
+    rrn: formatRrn(c.rrn),
+    family: (c.family || []).map((f) => ({
+      ...emptyFamily(),
+      ...f,
+      phone: typeof formatPhone === 'function' ? formatPhone(f.phone) : f.phone,
+      rrn: formatRrn(f.rrn)
+    })),
+    logs: c.logs || []
+  }));
 
 const toB64 = (bytes) => {
   let s = '';
@@ -515,13 +531,13 @@ export default function App() {
     localStorage.setItem(VAULT_KEY, JSON.stringify(await encryptObject({ customers: list }, password)));
   };
   const setAndSave = async (list) => {
-    const normalized = normalizeCustomers(list);
+    const normalized = normalizeCustomers(list).filter((customer) => hasRealCustomerIdentity(customer));
     setCustomers(normalized);
     if (!normalized.some((c) => c.id === selectedId)) setSelectedId(normalized[0]?.id || null);
     await persist(normalized);
   };
   const handleLogin = (list, password) => {
-    const normalized = normalizeCustomers(list);
+    const normalized = normalizeCustomers(list).filter((customer) => hasRealCustomerIdentity(customer));
     setCustomers(normalized);
     setSelectedId(normalized[0]?.id || null);
     setSessionPassword(password);
@@ -835,43 +851,82 @@ export default function App() {
       const buffer = await file.arrayBuffer();
       const workbook = XLSX.read(buffer, { type: 'array' });
 
-      const rowsFromSheet = (sheetName, fallbackIndex = 0) => {
+      const getSheetRows = (sheetName, fallbackIndex = 0) => {
         const sheet = workbook.Sheets[sheetName] || workbook.Sheets[workbook.SheetNames[fallbackIndex]];
-        return sheet ? XLSX.utils.sheet_to_json(sheet, { defval: '' }) : [];
+        return sheet ? XLSX.utils.sheet_to_json(sheet, { defval: '', blankrows: false }) : [];
       };
 
-      const customerRows = rowsFromSheet('고객정보', 0);
-      const familyRows = workbook.Sheets['가족정보'] ? rowsFromSheet('가족정보') : [];
-      const logRows = workbook.Sheets['문자연락기록'] ? rowsFromSheet('문자연락기록') : [];
+      const normalizeId = (value) => String(value ?? '').trim().replace(/\.0$/, '');
+      const rowText = (value) => String(value ?? '').trim();
+      const rowPhone = (value) => String(value ?? '').replace(/[^0-9]/g, '');
+      const rowRrn = (value) => String(value ?? '').replace(/[^0-9]/g, '');
 
-      if (!customerRows.length) {
-        setStatus('가져올 고객정보가 없습니다.');
-        event.target.value = '';
-        return;
-      }
+      const hasCustomerIdentityInRow = (row) => {
+        return Boolean(
+          normalizeId(row.고객ID) ||
+          rowText(row.고객명) ||
+          rowPhone(row.전화번호 || row.고객전화번호) ||
+          rowRrn(row.주민등록번호 || row['주민등록번호(마스킹)'])
+        );
+      };
 
-      const normalizeId = (value) => asText(value).replace(/\.0$/, '');
-      const scoreFromExcel = (value) => {
+      const hasCustomerNameInRow = (row) => Boolean(rowText(row.고객명));
+
+      const hasFamilyData = (row) => {
+        return Boolean(
+          rowText(row.가족관계) ||
+          rowText(row.가족명) ||
+          rowRrn(row.가족주민번호) ||
+          rowPhone(row.가족전화번호) ||
+          rowText(row.가족메모)
+        );
+      };
+
+      const hasLogData = (row) => {
+        return Boolean(
+          rowText(row.날짜) ||
+          rowText(row.시간) ||
+          rowText(row.구분) ||
+          rowText(row.내용)
+        );
+      };
+
+      const customerRowsRaw = getSheetRows('고객정보', 0);
+      const familyRowsRaw = workbook.Sheets['가족정보'] ? getSheetRows('가족정보') : [];
+      const logRowsRaw = workbook.Sheets['문자연락기록'] ? getSheetRows('문자연락기록') : [];
+
+      // 고객정보 시트에서는 이름/전화/주민번호/ID가 전부 없는 행 제거
+      const customerRows = customerRowsRaw.filter(hasCustomerIdentityInRow);
+
+      // 가족/문자 시트는 가족/기록 데이터가 있고, 고객 연결 정보가 있는 행만 사용
+      const familyRows = familyRowsRaw.filter((row) => hasCustomerIdentityInRow(row) && hasFamilyData(row));
+      const logRows = logRowsRaw.filter((row) => hasCustomerIdentityInRow(row) && hasLogData(row));
+
+      // 기존 고객 목록에서도 이름/전화/주민번호가 없는 고객은 정리
+      const cleanExistingCustomers = customers.filter((customer) => hasRealCustomerIdentity(customer));
+
+      const scoreFromExcel = (value, fallback = 30) => {
         const parsed = Number(String(value || '').replace(/[^0-9.]/g, ''));
-        return Number.isFinite(parsed) && parsed > 0 ? parsed : 30;
+        return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
       };
+
       const dateFromExcel = (value) => {
         if (value === undefined || value === null || value === '') return '';
         if (typeof value === 'number' && value > 20000 && value < 90000) {
           const parsed = XLSX.SSF.parse_date_code(value);
           if (parsed) return `${parsed.y}-${pad(parsed.m)}-${pad(parsed.d)}`;
         }
-        return asText(value);
+        return rowText(value);
       };
 
-      const existingById = new Map(customers.map((customer) => [String(customer.id), customer]));
+      const existingById = new Map(cleanExistingCustomers.map((customer) => [String(customer.id), customer]));
       const existingByRrn = new Map();
       const existingByNamePhone = new Map();
       const nameCounts = new Map();
 
-      customers.forEach((customer) => {
+      cleanExistingCustomers.forEach((customer) => {
         const rrnKey = cleanRrn(customer.rrn);
-        const nameKey = asText(customer.name);
+        const nameKey = rowText(customer.name);
         const phoneKey = cleanPhone(customer.phone);
         if (rrnKey) existingByRrn.set(rrnKey, customer);
         if (nameKey && phoneKey) existingByNamePhone.set(`${nameKey}|${phoneKey}`, customer);
@@ -879,8 +934,8 @@ export default function App() {
       });
 
       const existingByUniqueName = new Map();
-      customers.forEach((customer) => {
-        const nameKey = asText(customer.name);
+      cleanExistingCustomers.forEach((customer) => {
+        const nameKey = rowText(customer.name);
         if (nameKey && nameCounts.get(nameKey) === 1) {
           existingByUniqueName.set(nameKey, customer);
         }
@@ -888,9 +943,9 @@ export default function App() {
 
       const findExistingCustomer = (row) => {
         const rowId = normalizeId(row.고객ID);
-        const rrnKey = cleanRrn(row.주민등록번호 || row['주민등록번호(마스킹)'] || '');
-        const nameKey = asText(row.고객명);
-        const phoneKey = cleanPhone(row.전화번호 || row.고객전화번호 || '');
+        const rrnKey = rowRrn(row.주민등록번호 || row['주민등록번호(마스킹)']);
+        const nameKey = rowText(row.고객명);
+        const phoneKey = rowPhone(row.전화번호 || row.고객전화번호);
 
         if (rowId && existingById.has(rowId)) return existingById.get(rowId);
         if (rrnKey && existingByRrn.has(rrnKey)) return existingByRrn.get(rrnKey);
@@ -901,35 +956,52 @@ export default function App() {
 
       const importedByInternalId = new Map();
 
-      const ensureImportedCustomer = (row, index = 0) => {
+      const ensureImportedCustomer = (row, index = 0, options = {}) => {
+        const { allowCreate = false, source = 'customer' } = options;
+        if (!hasCustomerIdentityInRow(row)) return null;
+
         const existing = findExistingCustomer(row);
         const rowId = normalizeId(row.고객ID);
+
+        // 가족/문자 시트에서는 기존 고객 또는 고객정보 시트에서 이미 만든 고객만 연결한다.
+        // 절대 새 고객을 만들지 않는다.
+        if (!allowCreate && !existing) {
+          if (rowId && importedByInternalId.has(String(rowId))) {
+            return importedByInternalId.get(String(rowId));
+          }
+          return null;
+        }
+
+        // 신규 고객 생성은 고객정보 시트에서만 허용하고, 고객명이 반드시 있어야 한다.
+        if (allowCreate && !existing && !hasCustomerNameInRow(row)) return null;
+
         const internalId = existing?.id || (rowId ? Number(rowId) || rowId : Date.now() + index);
         const mapKey = String(internalId);
 
         if (!importedByInternalId.has(mapKey)) {
-          const rrn = formatRrn(row.주민등록번호 || row['주민등록번호(마스킹)'] || existing?.rrn || '');
-          const phone = formatPhone(row.전화번호 || row.고객전화번호 || existing?.phone || '');
+          const fallbackScore = existing?.score ?? 30;
           const importedCustomer = {
             ...emptyCustomer(),
             ...(existing || {}),
             id: internalId,
             registeredAt: dateFromExcel(row.최초등록일) || existing?.registeredAt || today(),
-            name: asText(row.고객명) || existing?.name || '',
-            phone,
-            rrn,
-            grade: asText(row.등급) || existing?.grade || '잠재',
+            name: rowText(row.고객명) || existing?.name || '',
+            phone: formatPhone(row.전화번호 || row.고객전화번호 || existing?.phone || ''),
+            rrn: formatRrn(row.주민등록번호 || row['주민등록번호(마스킹)'] || existing?.rrn || ''),
+            grade: rowText(row.등급) || existing?.grade || '잠재',
             temp: existing?.temp || '보통',
-            score: scoreFromExcel(row.관계온도 || row.관계점수 || existing?.score),
-            status: asText(row.상태) || existing?.status || '안부 필요',
+            score: scoreFromExcel(row.관계온도 || row.관계점수 || existing?.score, fallbackScore),
+            status: rowText(row.상태) || existing?.status || '안부 필요',
             next: dateFromExcel(row.다음연락일) || existing?.next || addDays(7),
             topic: existing?.topic || '',
-            tags: textToTags(row.태그 || '') || existing?.tags || [],
-            memo: asText(row.메모) || existing?.memo || '',
-            lastAction: asText(row.최근기록) || existing?.lastAction || '엑셀 가져오기',
+            tags: rowText(row.태그) ? textToTags(row.태그) : (existing?.tags || []),
+            memo: rowText(row.메모) || existing?.memo || '',
+            lastAction: rowText(row.최근기록) || existing?.lastAction || '엑셀 가져오기',
             family: [],
             logs: []
           };
+
+          if (!hasRealCustomerIdentity(importedCustomer)) return null;
           importedByInternalId.set(mapKey, importedCustomer);
         }
 
@@ -937,8 +1009,7 @@ export default function App() {
       };
 
       customerRows.forEach((row, index) => {
-        const hasData = asText(row.고객ID) || asText(row.고객명) || asText(row.전화번호) || asText(row.주민등록번호);
-        if (hasData) ensureImportedCustomer(row, index);
+        ensureImportedCustomer(row, index, { allowCreate: true, source: 'customer' });
       });
 
       familyRows.forEach((row, index) => {
@@ -946,22 +1017,22 @@ export default function App() {
           고객ID: row.고객ID,
           고객명: row.고객명,
           전화번호: row.고객전화번호
-        }, index + 10000);
+        }, index + 10000, { allowCreate: false, source: 'family' });
+
+        if (!customer) return;
 
         const family = {
           id: Date.now() + index + 1000 + customer.family.length,
-          rel: asText(row.가족관계) || '기타',
-          name: asText(row.가족명),
+          rel: rowText(row.가족관계) || '기타',
+          name: rowText(row.가족명),
           rrn: formatRrn(row.가족주민번호 || ''),
           phone: formatPhone(row.가족전화번호),
-          memo: asText(row.가족메모)
+          memo: rowText(row.가족메모)
         };
 
-        if (family.rel !== '기타' || family.name || family.rrn || family.phone || family.memo) {
-          const familyKey = `${family.rel}|${family.name}|${cleanRrn(family.rrn)}|${cleanPhone(family.phone)}`;
-          const exists = customer.family.some((item) => `${item.rel}|${item.name}|${cleanRrn(item.rrn)}|${cleanPhone(item.phone)}` === familyKey);
-          if (!exists) customer.family.push(family);
-        }
+        const familyKey = `${family.rel}|${family.name}|${cleanRrn(family.rrn)}|${cleanPhone(family.phone)}`;
+        const exists = customer.family.some((item) => `${item.rel}|${item.name}|${cleanRrn(item.rrn)}|${cleanPhone(item.phone)}` === familyKey);
+        if (!exists) customer.family.push(family);
       });
 
       logRows.forEach((row, index) => {
@@ -969,53 +1040,38 @@ export default function App() {
           고객ID: row.고객ID,
           고객명: row.고객명,
           전화번호: row.고객전화번호
-        }, index + 20000);
+        }, index + 20000, { allowCreate: false, source: 'log' });
+
+        if (!customer) return;
 
         const log = {
           id: Date.now() + index + 3000 + customer.logs.length,
           date: dateFromExcel(row.날짜) || today(),
-          time: asText(row.시간),
-          kind: asText(row.구분) || '기타',
+          time: rowText(row.시간),
+          kind: rowText(row.구분) || '기타',
           title: '',
-          content: asText(row.내용)
+          content: rowText(row.내용)
         };
 
-        if (log.date || log.time || log.kind || log.content) {
-          const logKey = `${log.date}|${log.time}|${log.kind}|${log.content}`;
-          const exists = customer.logs.some((item) => `${item.date}|${item.time}|${item.kind}|${item.content}` === logKey);
-          if (!exists) customer.logs.push(log);
-        }
+        const logKey = `${log.date}|${log.time}|${log.kind}|${log.content}`;
+        const exists = customer.logs.some((item) => `${item.date}|${item.time}|${item.kind}|${item.content}` === logKey);
+        if (!exists) customer.logs.push(log);
       });
 
-      // 구버전 엑셀 파일에 최근연락기록만 있는 경우를 위한 보완
-      customerRows.forEach((row, index) => {
-        const customer = ensureImportedCustomer(row, index);
-        const latestAt = asText(row.최근연락일시);
-        const latestKind = asText(row.최근연락구분);
-        const latestContent = asText(row.최근연락내용);
-        if ((latestAt || latestKind || latestContent) && customer.logs.length === 0) {
-          const [datePart, timePart] = latestAt.split(' ');
-          customer.logs.push({
-            id: Date.now() + index + 9000,
-            date: datePart || today(),
-            time: timePart || '',
-            kind: latestKind || '기타',
-            title: '',
-            content: latestContent
-          });
-        }
-      });
+      const imported = Array.from(importedByInternalId.values()).filter(hasRealCustomerIdentity);
 
-      const imported = Array.from(importedByInternalId.values());
       if (!imported.length) {
-        setStatus('가져올 고객 데이터가 없습니다.');
+        const cleanedOnly = cleanExistingCustomers;
+        await setAndSave(cleanedOnly);
+        setStatus('가져올 고객 데이터가 없습니다. 이름 없는 고객은 정리했습니다.');
         event.target.value = '';
         return;
       }
 
-      const importedIds = new Set(imported.map((customer) => String(customer.id)));
-      const merged = customers.map((existingCustomer) => {
-        const incoming = importedByInternalId.get(String(existingCustomer.id));
+      const importedMap = new Map(imported.map((customer) => [String(customer.id), customer]));
+
+      const merged = cleanExistingCustomers.map((existingCustomer) => {
+        const incoming = importedMap.get(String(existingCustomer.id));
         if (!incoming) return existingCustomer;
         return {
           ...existingCustomer,
@@ -1028,13 +1084,14 @@ export default function App() {
       });
 
       imported.forEach((incoming) => {
-        const alreadyExists = customers.some((customer) => String(customer.id) === String(incoming.id));
-        if (!alreadyExists) merged.push(incoming);
+        const alreadyExists = cleanExistingCustomers.some((customer) => String(customer.id) === String(incoming.id));
+        if (!alreadyExists && hasRealCustomerIdentity(incoming)) merged.push(incoming);
       });
 
-      await setAndSave(merged);
-      setSelectedId(imported[0]?.id || merged[0]?.id || null);
-      setStatus(`엑셀에서 ${imported.length}명의 고객정보를 반영했습니다. 기존 고객은 새로 만들지 않고 수정했습니다.`);
+      const finalList = merged.filter(hasRealCustomerIdentity);
+      await setAndSave(finalList);
+      setSelectedId(imported[0]?.id || finalList[0]?.id || null);
+      setStatus(`엑셀에서 ${imported.length}명의 고객정보를 반영했습니다. 이름 없는 고객은 자동 정리했습니다.`);
     } catch (error) {
       console.error(error);
       setStatus('엑셀 가져오기 실패: 파일 형식이나 열 이름을 확인해 주세요.');
