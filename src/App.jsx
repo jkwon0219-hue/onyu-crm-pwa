@@ -187,6 +187,19 @@ const depth = (score) => {
   if (score >= 35) return ['🌱', '관계 회복 중', '판매보다 안부와 도움 되는 정보로 천천히 쌓아야 하는 단계'];
   return ['🧊', '차가운 관계', '짧고 부담 없는 연락부터 필요한 단계'];
 };
+const relationCelsius = (score) => {
+  const n = Number(score || 0);
+  return Math.max(0, Math.min(100, Math.round(n)));
+};
+const relationTempLabel = (score) => {
+  const c = relationCelsius(score);
+  if (c >= 80) return '뜨거운 신뢰';
+  if (c >= 60) return '따뜻함';
+  if (c >= 35) return '미지근함';
+  return '차가움';
+};
+const relationTempText = (score) => `${relationCelsius(score)}℃`;
+
 const gain = (action) => ({ '상담 예약': 5, '소개 요청': 4, '통화 완료': 3, '메시지 발송': 1 }[action] || 1);
 const nextDate = (action) => {
   if (action === '상담 예약') return addDays(14);
@@ -203,6 +216,13 @@ function Button({ children, onClick, light = false, className = '', disabled = f
   const style = light ? 'border bg-white text-slate-700 ' : 'bg-slate-900 text-white ';
   return <button type="button" disabled={disabled} onClick={onClick} className={style + base + className}>{children}</button>;
 }
+
+function SmallButton({ children, onClick, light = false, className = "", disabled = false }) {
+  const base = "rounded-xl px-2.5 py-1.5 text-xs font-bold disabled:opacity-50 ";
+  const style = light ? "border bg-white text-slate-700 " : "bg-slate-900 text-white ";
+  return <button type="button" disabled={disabled} onClick={onClick} className={style + base + className}>{children}</button>;
+}
+
 function Card({ children, className = '' }) {
   return <div className={'rounded-3xl bg-white p-4 shadow-sm ' + className}>{children}</div>;
 }
@@ -389,7 +409,6 @@ export default function App() {
   const [editingLogId, setEditingLogId] = useState(null);
   const [copied, setCopied] = useState(false);
   const [status, setStatus] = useState('');
-  const [backupText, setBackupText] = useState('');
   const [newPw, setNewPw] = useState('');
   const [newPw2, setNewPw2] = useState('');
   const [appointmentDate, setAppointmentDate] = useState(today());
@@ -571,21 +590,6 @@ export default function App() {
     if (editingLogId === id) cancelEditLog();
   };
 
-  const exportBackup = async () => {
-    const text = JSON.stringify(await encryptObject({ customers, exportedAt: new Date().toISOString() }, sessionPassword), null, 2);
-    setBackupText(text);
-    const blob = new Blob([text], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'onyu-crm-backup-' + today() + '.json';
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-    setStatus('암호화 백업을 만들었습니다.');
-  };
-
   const exportExcel = () => {
     const rows = [];
     customers.forEach((customer) => {
@@ -598,8 +602,8 @@ export default function App() {
           주민등록번호: customer.rrn || '',
           고객나이: ageTextFromRrn(customer.rrn),
           등급: customer.grade || '',
-          관계온도: customer.temp || '',
-          관계점수: customer.score ?? '',
+          관계온도: relationTempText(customer.score),
+          관계점수: relationTempText(customer.score),
           상태: customer.status || '',
           최초등록일: customer.registeredAt || '',
           다음연락일: customer.next || '',
@@ -656,7 +660,7 @@ export default function App() {
             rrn,
             grade: asText(row.등급) || '잠재',
             temp: asText(row.관계온도) || '보통',
-            score: Number(row.관계점수) || 30,
+            score: Number(String(row.관계점수 || '').replace(/[^0-9.]/g, '')) || 30,
             status: asText(row.상태) || '안부 필요',
             next: asText(row.다음연락일) || addDays(7),
             topic: asText(row.연락목적),
@@ -756,19 +760,6 @@ export default function App() {
     setStatus('암호가 변경되었습니다.');
   };
 
-  const resetData = async () => {
-    const list = sampleCustomers();
-    await setAndSave(list);
-    setSelectedId(list[0].id);
-    setQuery('');
-    setQuickFilter('전체');
-    setGradeFilter('전체');
-    setTemplate('관계회복');
-    setLogDraft(emptyLog());
-    setModal(null);
-    setStatus('초기화가 완료되었습니다.');
-  };
-
   const deleteCustomer = async () => {
     const remain = customers.filter((c) => c.id !== selected.id);
     await setAndSave(remain);
@@ -787,10 +778,7 @@ export default function App() {
     if (modal === 'customer-add' || modal === 'customer-edit') {
       return <CustomerEditor mode={modal === 'customer-add' ? 'add' : 'edit'} form={form} setForm={setForm} familyDraft={familyDraft} setFamilyDraft={setFamilyDraft} onSave={saveCustomer} onClose={() => setModal(null)} />;
     }
-    if (modal === 'reset') {
-      return <Modal title="고객 데이터 초기화" onClose={() => setModal(null)}><p className="text-sm text-slate-600">현재 데이터를 샘플 고객 3명으로 초기화합니다. 필요하면 먼저 암호화 백업을 눌러주세요.</p><div className="mt-5 flex gap-2"><Button light className="flex-1" onClick={() => setModal(null)}>취소</Button><Button className="flex-1" onClick={resetData}>초기화 실행</Button></div></Modal>;
-    }
-    if (modal === 'password') {
+    if (modal === "password") {
       return <Modal title="암호 변경" onClose={() => setModal(null)}><div className="space-y-2"><input type="password" className="w-full rounded-2xl border p-3" placeholder="새 암호" value={newPw} onChange={(e) => setNewPw(e.target.value)} /><input type="password" className="w-full rounded-2xl border p-3" placeholder="새 암호 확인" value={newPw2} onChange={(e) => setNewPw2(e.target.value)} /></div><Button className="mt-4 w-full" onClick={savePassword}>변경 저장</Button></Modal>;
     }
     if (modal === 'delete') {
@@ -815,13 +803,13 @@ export default function App() {
             <input className="w-full rounded-2xl border bg-white p-3 text-sm md:w-64" placeholder="상담사 이름 예: 홍길동" value={counselorName} onChange={(e) => setCounselorName(e.target.value)} />
             <div className="flex flex-wrap gap-2">
               <Button onClick={openAdd}>＋ 고객 추가</Button>
-              <Button light onClick={exportBackup}>암호화 백업</Button>
+              
               <Button light onClick={exportExcel}>엑셀 내보내기</Button>
               <label className="cursor-pointer rounded-2xl border bg-white px-4 py-2.5 text-sm font-bold text-slate-700">엑셀 가져오기<input type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={importExcel} /></label>
               <label className="cursor-pointer rounded-2xl border bg-white px-4 py-2.5 text-sm font-bold text-slate-700">복원<input type="file" accept="application/json" className="hidden" onChange={importBackup} /></label>
               <Button light onClick={lockApp}>잠금</Button>
               <Button light onClick={() => { setNewPw(''); setNewPw2(''); setModal('password'); }}>암호 변경</Button>
-              <Button light onClick={() => setModal('reset')}>초기화</Button>
+              
             </div>
           </div>
         </header>
@@ -852,7 +840,7 @@ export default function App() {
               </div>
               {pagedCustomers.map((c) => {
                 const info = depth(c.score || 0);
-                return <button key={c.id} type="button" onClick={() => setSelectedId(c.id)} className={(c.id === selected.id ? 'bg-slate-900 text-white ' : 'bg-white ') + 'mb-2 w-full rounded-2xl border p-3 text-left'}><div className="flex justify-between"><div><b>{c.name}</b><p className="text-xs opacity-70">{c.phone} · 가족 {c.family.length}명 · 기록 {(c.logs || []).length}건</p><p className="text-xs opacity-70">{info[0]} {info[1]}</p></div><b>{c.score}</b></div></button>;
+                return <button key={c.id} type="button" onClick={() => setSelectedId(c.id)} className={(c.id === selected.id ? 'bg-slate-900 text-white ' : 'bg-white ') + 'mb-2 w-full rounded-2xl border p-3 text-left'}><div className="flex justify-between"><div><b>{c.name}</b><p className="text-xs opacity-70">{c.phone} · 가족 {c.family.length}명 · 기록 {(c.logs || []).length}건</p><p className="text-xs opacity-70">{info[0]} {info[1]} · {relationTempText(c.score)}</p></div><b>{relationTempText(c.score)}</b></div></button>;
               })}
               {totalCustomerPages > 1 ? <div className="mt-4 flex items-center justify-between rounded-2xl bg-white p-2 text-sm"><Button light onClick={() => setCustomerPage(Math.max(1, safeCustomerPage - 1))}>이전</Button><b>{safeCustomerPage} / {totalCustomerPages} 페이지</b><Button light onClick={() => setCustomerPage(Math.min(totalCustomerPages, safeCustomerPage + 1))}>다음</Button></div> : null}
             </Card>
@@ -861,10 +849,10 @@ export default function App() {
           <section className="space-y-5">
             <Card>
               <div className="flex flex-col justify-between gap-3 md:flex-row">
-                <div><h2 className="text-2xl font-black">{selected.name}</h2><p className="text-sm text-slate-500">{selected.phone}</p><div className="mt-2 flex gap-2"><Badge color={selected.grade === 'VIP' ? 'amber' : selected.grade === '잠재' ? 'blue' : 'green'}>{selected.grade}</Badge><Badge>{selected.temp}</Badge></div></div>
-                <div className="flex flex-wrap gap-2"><Button light onClick={() => recordAction('통화 완료')}>☎ 통화 완료</Button><Button onClick={openAppointment}>📅 상담 예약</Button><Button light onClick={openEdit}>✏️ 고객 수정</Button><Button light onClick={() => setModal('delete')}>🗑 고객 삭제</Button></div>
+                <div><h2 className="text-2xl font-black">{selected.name}</h2><p className="text-sm text-slate-500">{selected.phone}</p></div>
+                <div className="flex flex-wrap gap-1.5"><SmallButton light onClick={() => recordAction('통화 완료')}>☎ 통화 완료</SmallButton><SmallButton onClick={openAppointment}>📅 상담 예약</SmallButton><SmallButton light onClick={openEdit}>✏️ 고객 수정</SmallButton><SmallButton light onClick={() => setModal('delete')}>🗑 고객 삭제</SmallButton></div>
               </div>
-              <div className="mt-4 rounded-2xl bg-slate-50 p-4"><div className="flex justify-between"><div><p className="text-sm text-slate-500">관계 깊이</p><h3 className="text-xl font-black">{d[0]} {d[1]}</h3><p className="text-sm text-slate-500">{d[2]}</p></div><b className="text-3xl">{selected.score}</b></div><div className="mt-3 h-3 rounded-full bg-white"><div className="h-3 rounded-full bg-slate-900" style={{ width: Math.min(100, selected.score || 0) + '%' }} /></div></div>
+              <div className="mt-4 rounded-2xl bg-slate-50 p-4"><div className="flex justify-between"><div><p className="text-sm text-slate-500">관계온도</p><h3 className="text-xl font-black">{d[0]} {d[1]}</h3><p className="text-sm text-slate-500">{d[2]}</p></div><b className="text-3xl">{relationTempText(selected.score)}</b></div><div className="mt-3 h-3 rounded-full bg-white"><div className="h-3 rounded-full bg-slate-900" style={{ width: Math.min(100, selected.score || 0) + '%' }} /></div></div>
               <div className="mt-4 grid gap-3 md:grid-cols-2"><Info title="연락 목적" value={selected.topic || '미입력'} /><Info title="다음 연락일" value={selected.next} /><Info title="최초 등록일" value={selected.registeredAt || '미입력'} /><Info title="고객 주민등록번호" value={maskRrn(selected.rrn)} sub={birthFromRrn(selected.rrn) ? birthFromRrn(selected.rrn) + ' · ' + ageTextFromRrn(selected.rrn) : '나이 자동 계산 대기'} /><Info title="최근 기록" value={selected.lastAction || '-'} /></div>
               <div className="mt-4"><div className="mb-2 flex justify-between"><h3 className="font-black">가족 정보</h3><Badge color="purple">{selected.family.length}명</Badge></div>{selected.family.length === 0 ? <p className="rounded-2xl bg-slate-50 p-3 text-sm text-slate-500">등록된 가족 정보가 없습니다.</p> : selected.family.map((f) => <div key={f.id} className="mb-2 rounded-2xl bg-slate-50 p-3"><b>{f.rel} · {f.name || '이름 미입력'} · {ageTextFromRrn(f.rrn)}</b><p className="text-sm text-slate-500">생년월일 {birthFromRrn(f.rrn) || '미입력'}</p><p className="text-sm text-slate-500">주민등록번호 {maskRrn(f.rrn)}</p><p className="text-sm text-slate-500">전화번호 {f.phone || '미입력'}</p><p className="text-sm">{f.memo || '메모 없음'}</p></div>)}</div>
               <div className="mt-4"><p className="text-xs text-slate-400">상담후기</p><p className="whitespace-pre-wrap">{selected.review || '상담후기 없음'}</p></div>
@@ -883,7 +871,6 @@ export default function App() {
         </main>
 
         {renderModal()}
-        {backupText ? <Modal title="암호화 백업 생성 완료" onClose={() => setBackupText('')}><p className="text-sm text-slate-600">다운로드가 자동으로 안 되면 아래 내용을 복사해서 .json 파일로 저장해도 됩니다.</p><textarea readOnly className="mt-4 h-56 w-full rounded-2xl border p-3 text-xs" value={backupText} /><div className="mt-4 flex gap-2"><Button light className="flex-1" onClick={() => navigator.clipboard?.writeText(backupText)}>복사</Button><Button className="flex-1" onClick={() => setBackupText('')}>닫기</Button></div></Modal> : null}
       </div>
     </div>
   );
