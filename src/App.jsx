@@ -495,14 +495,11 @@ export default function App() {
   const [selectedCustomerIds, setSelectedCustomerIds] = useState([]);
   const [selectionMode, setSelectionMode] = useState(false);
   const [familyOpen, setFamilyOpen] = useState(false);
-  const [template, setTemplate] = useState('관계회복');
-  const [counselorName, setCounselorName] = useState('');
   const [modal, setModal] = useState(null);
   const [form, setForm] = useState(emptyCustomer());
   const [familyDraft, setFamilyDraft] = useState(emptyFamily());
   const [logDraft, setLogDraft] = useState(emptyLog());
   const [editingLogId, setEditingLogId] = useState(null);
-  const [copied, setCopied] = useState(false);
   const [status, setStatus] = useState('');
   const [newPw, setNewPw] = useState('');
   const [newPw2, setNewPw2] = useState('');
@@ -572,16 +569,6 @@ export default function App() {
   }, [selectedId]);
 
   if (!unlocked) return <LockScreen onLogin={handleLogin} />;
-
-  const counselor = counselorName.trim() || '담당 상담사';
-  const messages = {
-    관계회복: ['안녕하세요, ' + selected.name + '님! ' + counselor + '입니다.', '그동안 제가 더 세심하게 챙겨드렸어야 했는데 인사가 늦었습니다. 오늘 문득 생각나서 안부 여쭤봅니다.', '혹시 보험 관련해서 궁금하시거나 불편한 점은 없으셨나요? 부담 없이 말씀 주세요.'],
-    정보공유: ['안녕하세요, ' + selected.name + '님! ' + counselor + '입니다.', '최근 보험금 청구 상담 중 놓치기 쉬운 부분이 있어 연락드렸습니다.', selected.topic || '도움 될 만한 내용을 정리해드릴 수 있습니다.'],
-    생일: [selected.name + '님, 생일 진심으로 축하드립니다!', '오늘 하루 기분 좋은 시간 보내시고 건강하고 좋은 일 많으시길 응원하겠습니다.'],
-    갱신점검: ['안녕하세요, ' + selected.name + '님! ' + counselor + '입니다.', '보험은 시간이 지나면서 갱신, 보장 변화, 가족 상황 변화 때문에 한 번씩 점검이 필요합니다.', '필요하실 때 편하게 말씀 주세요.'],
-    소개요청: ['안녕하세요, ' + selected.name + '님! ' + counselor + '입니다.', '주변에 보험은 있는데 제대로 되어 있는지 모르겠거나 보험료가 부담되는 분이 계시면 편하게 소개해 주세요.', '무리한 권유 없이 필요한 부분만 정리해드리겠습니다.']
-  };
-  const message = messages[template].join(String.fromCharCode(10, 10));
   const d = depth(selected.score || 0);
   const customerPerPage = 5;
   const totalCustomerPages = Math.max(1, Math.ceil(filtered.length / customerPerPage));
@@ -971,12 +958,6 @@ export default function App() {
     setStatus(`${removeSet.size}명의 고객이 삭제되었습니다.`);
   };
 
-  const copyMessage = () => {
-    navigator.clipboard?.writeText(message);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1200);
-  };
-
   const renderModal = () => {
     if (modal === 'customer-add' || modal === 'customer-edit') {
       return <CustomerEditor mode={modal === 'customer-add' ? 'add' : 'edit'} form={form} setForm={setForm} familyDraft={familyDraft} setFamilyDraft={setFamilyDraft} onSave={saveCustomer} onClose={() => setModal(null)} />;
@@ -1006,7 +987,6 @@ export default function App() {
             {status ? <p className="mt-1 text-sm font-bold text-emerald-700">{status}</p> : null}
           </div>
           <div className="flex flex-col gap-2 md:items-end">
-            <input className="w-full rounded-2xl border bg-white p-3 text-sm md:w-64" placeholder="상담사 이름 예: 홍길동" value={counselorName} onChange={(e) => setCounselorName(e.target.value)} />
             <div className="flex flex-wrap gap-2">
               
               
@@ -1155,13 +1135,6 @@ export default function App() {
             </Card>
 
             <LogManager customer={selected} logDraft={logDraft} setLogDraft={setLogDraft} onAdd={addLog} onDelete={deleteLog} onEdit={editLog} editingLogId={editingLogId} onCancelEdit={cancelEditLog} />
-
-            <Card>
-              <h2 className="font-black">연락 메시지 자동 초안</h2>
-              <div className="my-3 grid grid-cols-2 gap-2 md:grid-cols-5">{Object.keys(messages).map((key) => <button key={key} type="button" onClick={() => setTemplate(key)} className={(template === key ? 'bg-slate-900 text-white ' : 'bg-slate-100 ') + 'rounded-2xl px-3 py-2 text-sm font-bold'}>{key}</button>)}</div>
-              <textarea readOnly value={message} className="min-h-[190px] w-full rounded-2xl border bg-slate-50 p-4" />
-              <div className="mt-3"><Button onClick={copyMessage}>{copied ? '복사 완료' : '메시지 복사'}</Button></div>
-            </Card>
           </section>
         </main>
 
