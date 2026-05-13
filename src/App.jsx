@@ -480,6 +480,7 @@ export default function App() {
   const [quickFilter, setQuickFilter] = useState('전체');
   const [gradeFilter, setGradeFilter] = useState('전체');
   const [customerPage, setCustomerPage] = useState(1);
+  const [selectedCustomerIds, setSelectedCustomerIds] = useState([]);
   const [familyOpen, setFamilyOpen] = useState(false);
   const [template, setTemplate] = useState('관계회복');
   const [counselorName, setCounselorName] = useState('');
@@ -573,6 +574,26 @@ export default function App() {
   const totalCustomerPages = Math.max(1, Math.ceil(filtered.length / customerPerPage));
   const safeCustomerPage = Math.min(customerPage, totalCustomerPages);
   const pagedCustomers = filtered.slice((safeCustomerPage - 1) * customerPerPage, safeCustomerPage * customerPerPage);
+  const pagedCustomerIds = pagedCustomers.map((customer) => customer.id);
+  const allPagedSelected = pagedCustomerIds.length > 0 && pagedCustomerIds.every((id) => selectedCustomerIds.includes(id));
+
+  const toggleCustomerSelection = (id) => {
+    setSelectedCustomerIds((prev) => prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]);
+  };
+
+  const toggleSelectPagedCustomers = () => {
+    setSelectedCustomerIds((prev) => {
+      if (allPagedSelected) {
+        return prev.filter((id) => !pagedCustomerIds.includes(id));
+      }
+      return Array.from(new Set([...prev, ...pagedCustomerIds]));
+    });
+  };
+
+  const clearCustomerSelection = () => {
+    setSelectedCustomerIds([]);
+  };
+
 
   const openAdd = () => { setForm({ ...emptyCustomer(), id: Date.now(), tagText: '' }); setFamilyDraft(emptyFamily()); setModal('customer-add'); };
   const openEdit = () => { setForm({ ...selected, tagText: tagsToText(selected.tags) }); setFamilyDraft(emptyFamily()); setModal('customer-edit'); };
@@ -835,6 +856,17 @@ export default function App() {
     setStatus('고객이 삭제되었습니다.');
   };
 
+  const deleteSelectedCustomers = async () => {
+    if (selectedCustomerIds.length === 0) return;
+    const removeSet = new Set(selectedCustomerIds);
+    const remain = customers.filter((customer) => !removeSet.has(customer.id));
+    await setAndSave(remain);
+    setSelectedCustomerIds([]);
+    setSelectedId((current) => removeSet.has(current) ? (remain[0]?.id || null) : current);
+    setModal(null);
+    setStatus(`${removeSet.size}명의 고객이 삭제되었습니다.`);
+  };
+
   const copyMessage = () => {
     navigator.clipboard?.writeText(message);
     setCopied(true);
@@ -850,6 +882,9 @@ export default function App() {
     }
     if (modal === 'delete') {
       return <Modal title="고객 삭제" onClose={() => setModal(null)}><p className="text-sm text-slate-600"><b>{selected.name || '선택한 고객'}</b> 고객을 삭제합니다. 삭제 후에는 백업 파일이 없으면 복구하기 어렵습니다.</p><div className="mt-5 flex gap-2"><Button light className="flex-1" onClick={() => setModal(null)}>취소</Button><Button className="flex-1" onClick={deleteCustomer}>삭제 실행</Button></div></Modal>;
+    }
+    if (modal === 'bulk-delete') {
+      return <Modal title="선택 고객 삭제" onClose={() => setModal(null)}><p className="text-sm text-slate-600"><b>{selectedCustomerIds.length}명</b>의 고객을 삭제합니다. 삭제 후에는 복구하기 어렵습니다.</p><div className="mt-5 flex gap-2"><Button light className="flex-1" onClick={() => setModal(null)}>취소</Button><Button className="flex-1" onClick={deleteSelectedCustomers}>선택 고객 삭제</Button></div></Modal>;
     }
     if (modal === 'appointment') {
       return <Modal title="상담 예약" onClose={() => setModal(null)}><div className="space-y-3"><div><p className="mb-1 text-sm font-bold text-slate-600">상담 날짜</p><input type="date" className="w-full rounded-2xl border p-3" value={appointmentDate} onChange={(e) => setAppointmentDate(e.target.value)} /></div><div><p className="mb-1 text-sm font-bold text-slate-600">상담 시간</p><input type="time" className="w-full rounded-2xl border p-3" value={appointmentTime} onChange={(e) => setAppointmentTime(e.target.value)} /></div><div className="rounded-2xl bg-slate-50 p-3 text-sm text-slate-600">선택한 일정: <b>{appointmentDate || '날짜 미선택'} {appointmentTime || '시간 미선택'}</b></div></div><Button className="mt-4 w-full" onClick={saveAppointment}>상담 예약 저장</Button></Modal>;
@@ -869,7 +904,7 @@ export default function App() {
           <div className="flex flex-col gap-2 md:items-end">
             <input className="w-full rounded-2xl border bg-white p-3 text-sm md:w-64" placeholder="상담사 이름 예: 홍길동" value={counselorName} onChange={(e) => setCounselorName(e.target.value)} />
             <div className="flex flex-wrap gap-2">
-              <Button onClick={openAdd}>＋ 고객 추가</Button>
+              
               
               <Button light onClick={exportExcel}>엑셀 내보내기</Button>
               <label className="cursor-pointer rounded-2xl border bg-white px-4 py-2.5 text-sm font-bold text-slate-700">엑셀 가져오기<input type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={importExcel} /></label>
@@ -900,19 +935,80 @@ export default function App() {
         <main className="grid gap-5 lg:grid-cols-[1fr_1.15fr]">
           <section>
             <Card>
-              <div className="mb-3 flex items-center justify-between"><h2 className="font-black">고객 목록</h2><Badge color="purple">{quickFilter}</Badge></div>
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <h2 className="font-black">고객 목록</h2>
+                <Badge color="purple">{quickFilter}</Badge>
+              </div>
+
+              <div className="mb-3 flex flex-wrap gap-2">
+                <Button onClick={openAdd} className="text-xs px-3 py-2">＋ 고객 추가</Button>
+                <Button
+                  light
+                  onClick={() => selectedCustomerIds.length > 0 && setModal('bulk-delete')}
+                  disabled={selectedCustomerIds.length === 0}
+                  className="text-xs px-3 py-2"
+                >
+                  선택 삭제 {selectedCustomerIds.length > 0 ? `${selectedCustomerIds.length}명` : ''}
+                </Button>
+                {selectedCustomerIds.length > 0 ? (
+                  <Button light onClick={clearCustomerSelection} className="text-xs px-3 py-2">선택 해제</Button>
+                ) : null}
+              </div>
+
               <div className="mb-3 flex gap-2">
                 <input className="flex-1 rounded-2xl border p-3" placeholder="검색" value={query} onChange={(e) => setQuery(e.target.value)} />
-                <select className="rounded-2xl border p-3" value={gradeFilter} onChange={(e) => setGradeFilter(e.target.value)}><option>전체</option><option>VIP</option><option>잠재</option><option>유지</option></select>
+                <select className="rounded-2xl border p-3" value={gradeFilter} onChange={(e) => setGradeFilter(e.target.value)}>
+                  <option>전체</option>
+                  <option>VIP</option>
+                  <option>잠재</option>
+                  <option>유지</option>
+                </select>
               </div>
+
+              {pagedCustomers.length > 0 ? (
+                <label className="mb-2 flex items-center gap-2 rounded-2xl bg-slate-50 p-3 text-sm font-bold text-slate-600">
+                  <input type="checkbox" checked={allPagedSelected} onChange={toggleSelectPagedCustomers} />
+                  현재 페이지 전체 선택
+                </label>
+              ) : null}
+
               {pagedCustomers.map((c) => {
                 const info = depth(c.score || 0);
-                return <button key={c.id} type="button" onClick={() => setSelectedId(c.id)} className={(c.id === selected.id ? 'bg-slate-900 text-white ' : 'bg-white ') + 'mb-2 w-full rounded-2xl border p-3 text-left'}><div className="flex justify-between"><div><b>{c.name}</b><p className="text-xs opacity-70">{c.phone} · 가족 {c.family.length}명 · 기록 {(c.logs || []).length}건</p><p className="text-xs opacity-70">{info[0]} {info[1]} · {relationTempText(c.score)}</p></div><b>{relationTempText(c.score)}</b></div></button>;
+                const checked = selectedCustomerIds.includes(c.id);
+                return (
+                  <div
+                    key={c.id}
+                    className={(c.id === selected.id ? 'bg-slate-900 text-white ' : 'bg-white ') + 'mb-2 flex w-full items-center gap-3 rounded-2xl border p-3'}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggleCustomerSelection(c.id)}
+                      className="h-4 w-4 shrink-0"
+                    />
+                    <button type="button" onClick={() => setSelectedId(c.id)} className="flex-1 text-left">
+                      <div className="flex justify-between gap-2">
+                        <div>
+                          <b>{c.name}</b>
+                          <p className="text-xs opacity-70">{c.phone} · 가족 {c.family.length}명 · 기록 {(c.logs || []).length}건</p>
+                          <p className="text-xs opacity-70">{info[0]} {info[1]} · {relationTempText(c.score)}</p>
+                        </div>
+                        <b>{relationTempText(c.score)}</b>
+                      </div>
+                    </button>
+                  </div>
+                );
               })}
-              {totalCustomerPages > 1 ? <div className="mt-4 flex items-center justify-between rounded-2xl bg-white p-2 text-sm"><Button light onClick={() => setCustomerPage(Math.max(1, safeCustomerPage - 1))}>이전</Button><b>{safeCustomerPage} / {totalCustomerPages} 페이지</b><Button light onClick={() => setCustomerPage(Math.min(totalCustomerPages, safeCustomerPage + 1))}>다음</Button></div> : null}
+
+              {totalCustomerPages > 1 ? (
+                <div className="mt-4 flex items-center justify-between rounded-2xl bg-white p-2 text-sm">
+                  <Button light onClick={() => setCustomerPage(Math.max(1, safeCustomerPage - 1))}>이전</Button>
+                  <b>{safeCustomerPage} / {totalCustomerPages} 페이지</b>
+                  <Button light onClick={() => setCustomerPage(Math.min(totalCustomerPages, safeCustomerPage + 1))}>다음</Button>
+                </div>
+              ) : null}
             </Card>
           </section>
-
           <section className="space-y-5">
             <Card>
               <div className="flex flex-col justify-between gap-3 md:flex-row">
