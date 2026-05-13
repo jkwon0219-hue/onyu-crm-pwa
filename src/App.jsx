@@ -24,13 +24,15 @@ const formatRrn = (value) => {
   if (digits.length > 6) return `${digits.slice(0, 6)}-${digits.slice(6, 13)}`;
   return digits;
 };
+const cleanPhone = (value) => String(value || '').replace(/[^0-9]/g, '');
+const cleanRrn = (value) => String(value || '').replace(/[^0-9]/g, '');
 const maskRrn = (value) => {
-  const digits = String(value || '').replace(/[^0-9]/g, '');
+  const digits = cleanRrn(value);
   if (digits.length >= 7) return `${digits.slice(0, 6)}-${digits.slice(6, 7)}******`;
   return '미입력';
 };
 const birthFromRrn = (value) => {
-  const digits = String(value || '').replace(/[^0-9]/g, '');
+  const digits = cleanRrn(value);
   if (digits.length < 7) return '';
   const year = ['3', '4', '7', '8'].includes(digits[6]) ? '20' : '19';
   return `${year}${digits.slice(0, 2)}-${digits.slice(2, 4)}-${digits.slice(4, 6)}`;
@@ -50,6 +52,7 @@ const ageTextFromRrn = (value) => {
 };
 const textToTags = (text) => String(text || '').split(',').map((v) => v.trim()).filter(Boolean);
 const tagsToText = (tags) => Array.isArray(tags) ? tags.join(', ') : '';
+const asText = (value) => (value === undefined || value === null ? '' : String(value).trim());
 
 const emptyFamily = () => ({ id: Date.now(), rel: '배우자', name: '', rrn: '', phone: '', memo: '' });
 const emptyLog = () => ({ id: Date.now(), date: today(), time: nowTime(), kind: '문자', title: '', content: '' });
@@ -155,7 +158,13 @@ const toB64 = (bytes) => {
 const fromB64 = (text) => Uint8Array.from(atob(text), (c) => c.charCodeAt(0));
 const deriveKey = async (password, salt) => {
   const baseKey = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveKey']);
-  return crypto.subtle.deriveKey({ name: 'PBKDF2', salt, iterations: ITERATIONS, hash: 'SHA-256' }, baseKey, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+  return crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt, iterations: ITERATIONS, hash: 'SHA-256' },
+    baseKey,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt']
+  );
 };
 const encryptObject = async (payload, password) => {
   const salt = crypto.getRandomValues(new Uint8Array(16));
@@ -188,9 +197,6 @@ const nextDate = (action) => {
 };
 const nextTemp = (score) => (score >= 80 ? '따뜻함' : score >= 40 ? '보통' : '차가움');
 const actionFromLogKind = (kind) => ({ 문자: '메시지 발송', 통화: '통화 완료', 상담: '상담 예약', 소개요청: '소개 요청' }[kind] || '기타');
-const excelText = (value) => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-const excelCell = (value) => `<td style="mso-number-format:'\\@';">${excelText(value)}</td>`;
-
 
 function Button({ children, onClick, light = false, className = '', disabled = false }) {
   const base = 'rounded-2xl px-4 py-2.5 text-sm font-bold disabled:opacity-50 ';
@@ -296,6 +302,7 @@ function CustomerEditor({ mode, form, setForm, familyDraft, setFamilyDraft, onSa
         <textarea className="min-h-[80px] rounded-2xl border p-3 md:col-span-2" placeholder="고객 메모" value={form.memo} onChange={(e) => setForm({ ...form, memo: e.target.value })} />
         <textarea className="min-h-[80px] rounded-2xl border p-3 md:col-span-2" placeholder="상담후기" value={form.review || ''} onChange={(e) => setForm({ ...form, review: e.target.value })} />
       </div>
+
       <div className="mt-5 rounded-3xl bg-slate-50 p-4">
         <div className="mb-3 flex items-center justify-between"><h3 className="font-black">가족 구성원</h3><Badge color="purple">{form.family.length}명</Badge></div>
         <div className="grid gap-2 md:grid-cols-5">
@@ -307,10 +314,20 @@ function CustomerEditor({ mode, form, setForm, familyDraft, setFamilyDraft, onSa
           <textarea className="min-h-[60px] rounded-2xl border bg-white p-3 md:col-span-5" placeholder="가족 메모" value={familyDraft.memo} onChange={(e) => setFamilyDraft({ ...familyDraft, memo: e.target.value })} />
           <Button className="md:col-span-5" onClick={addFamily}>{editingFamilyId ? '가족 수정 저장' : '가족 추가'}</Button>
         </div>
+
         {form.family.map((f) => (
           <div key={f.id} className="mt-2 flex justify-between rounded-2xl bg-white p-3 text-sm">
-            <div><b>{f.rel} · {f.name || '이름 미입력'} · {ageTextFromRrn(f.rrn)}</b><p className="text-slate-500">생년월일 {birthFromRrn(f.rrn) || '미입력'}</p><p className="text-slate-500">주민등록번호 {maskRrn(f.rrn)}</p><p className="text-slate-500">전화번호 {f.phone || '미입력'}</p><p>{f.memo || '메모 없음'}</p></div>
-            <div className="flex flex-col gap-2"><button type="button" className="text-xs font-bold text-blue-600" onClick={() => { setFamilyDraft({ ...emptyFamily(), ...f }); setEditingFamilyId(f.id); }}>수정</button><button type="button" className="text-xs font-bold text-slate-500" onClick={() => setForm({ ...form, family: form.family.filter((x) => x.id !== f.id) })}>삭제</button></div>
+            <div>
+              <b>{f.rel} · {f.name || '이름 미입력'} · {ageTextFromRrn(f.rrn)}</b>
+              <p className="text-slate-500">생년월일 {birthFromRrn(f.rrn) || '미입력'}</p>
+              <p className="text-slate-500">주민등록번호 {maskRrn(f.rrn)}</p>
+              <p className="text-slate-500">전화번호 {f.phone || '미입력'}</p>
+              <p>{f.memo || '메모 없음'}</p>
+            </div>
+            <div className="flex flex-col gap-2">
+              <button type="button" className="text-xs font-bold text-blue-600" onClick={() => { setFamilyDraft({ ...emptyFamily(), ...f }); setEditingFamilyId(f.id); }}>수정</button>
+              <button type="button" className="text-xs font-bold text-slate-500" onClick={() => setForm({ ...form, family: form.family.filter((x) => x.id !== f.id) })}>삭제</button>
+            </div>
           </div>
         ))}
       </div>
@@ -327,12 +344,28 @@ function LogManager({ customer, logDraft, setLogDraft, onAdd, onDelete, onEdit, 
   const safe = Math.min(page, total);
   const pageLogs = logs.slice((safe - 1) * perPage, safe * perPage);
   useEffect(() => setPage(1), [customer.id]);
+
   return (
     <Card>
       <div className="mb-3 flex items-center justify-between"><h2 className="font-black">문자/연락 기록</h2><Badge color="purple">{logs.length}건</Badge></div>
-      <div className="grid gap-2 md:grid-cols-5"><input className="rounded-2xl border p-3" value={logDraft.date} onChange={(e) => setLogDraft({ ...logDraft, date: e.target.value })} /><div className="rounded-2xl border bg-slate-50 p-3 text-sm"><p className="text-xs text-slate-400">자동 시간</p><p className="font-bold">{nowTime()}</p></div><select className="rounded-2xl border p-3" value={logDraft.kind} onChange={(e) => setLogDraft({ ...logDraft, kind: e.target.value })}><option>문자</option><option>통화</option><option>상담</option><option>소개요청</option><option>기타</option></select><input className="rounded-2xl border p-3 md:col-span-2" placeholder="제목" value={logDraft.title} onChange={(e) => setLogDraft({ ...logDraft, title: e.target.value })} /><textarea className="min-h-[80px] rounded-2xl border p-3 md:col-span-5" placeholder="내용" value={logDraft.content} onChange={(e) => setLogDraft({ ...logDraft, content: e.target.value })} /></div>
+      <div className="grid gap-2 md:grid-cols-5">
+        <input className="rounded-2xl border p-3" value={logDraft.date} onChange={(e) => setLogDraft({ ...logDraft, date: e.target.value })} />
+        <div className="rounded-2xl border bg-slate-50 p-3 text-sm"><p className="text-xs text-slate-400">자동 시간</p><p className="font-bold">{nowTime()}</p></div>
+        <select className="rounded-2xl border p-3" value={logDraft.kind} onChange={(e) => setLogDraft({ ...logDraft, kind: e.target.value })}><option>문자</option><option>통화</option><option>상담</option><option>소개요청</option><option>기타</option></select>
+        <input className="rounded-2xl border p-3 md:col-span-2" placeholder="제목" value={logDraft.title} onChange={(e) => setLogDraft({ ...logDraft, title: e.target.value })} />
+        <textarea className="min-h-[80px] rounded-2xl border p-3 md:col-span-5" placeholder="내용" value={logDraft.content} onChange={(e) => setLogDraft({ ...logDraft, content: e.target.value })} />
+      </div>
       <div className="mt-3 flex gap-2"><Button onClick={onAdd} className="flex-1">{editingLogId ? '기록 수정 저장' : '기록 추가'}</Button>{editingLogId ? <Button light onClick={onCancelEdit}>수정 취소</Button> : null}</div>
-      <div className="mt-4 space-y-2">{logs.length === 0 ? <p className="rounded-2xl bg-slate-50 p-3 text-sm text-slate-500">아직 저장된 기록이 없습니다.</p> : pageLogs.map((log) => <div key={log.id} className="rounded-2xl bg-slate-50 p-3 text-sm"><div className="flex justify-between gap-3"><div><b>{log.date} {log.time || ''} · {log.kind} · {log.title || '제목 없음'}</b><p className="mt-1 whitespace-pre-wrap text-slate-600">{log.content}</p></div><div className="flex flex-col gap-2"><button type="button" className="text-xs font-bold text-blue-600" onClick={() => onEdit(log)}>수정</button><button type="button" className="text-xs font-bold text-slate-500" onClick={() => onDelete(log.id)}>삭제</button></div></div></div>)}</div>
+      <div className="mt-4 space-y-2">
+        {logs.length === 0 ? <p className="rounded-2xl bg-slate-50 p-3 text-sm text-slate-500">아직 저장된 기록이 없습니다.</p> : pageLogs.map((log) => (
+          <div key={log.id} className="rounded-2xl bg-slate-50 p-3 text-sm">
+            <div className="flex justify-between gap-3">
+              <div><b>{log.date} {log.time || ''} · {log.kind} · {log.title || '제목 없음'}</b><p className="mt-1 whitespace-pre-wrap text-slate-600">{log.content}</p></div>
+              <div className="flex flex-col gap-2"><button type="button" className="text-xs font-bold text-blue-600" onClick={() => onEdit(log)}>수정</button><button type="button" className="text-xs font-bold text-slate-500" onClick={() => onDelete(log.id)}>삭제</button></div>
+            </div>
+          </div>
+        ))}
+      </div>
       {logs.length > perPage ? <div className="mt-4 flex items-center justify-between rounded-2xl bg-white p-2 text-sm"><Button light onClick={() => setPage(Math.max(1, safe - 1))}>이전</Button><b>{safe} / {total} 페이지</b><Button light onClick={() => setPage(Math.min(total, safe + 1))}>다음</Button></div> : null}
     </Card>
   );
@@ -362,6 +395,7 @@ export default function App() {
   const [appointmentDate, setAppointmentDate] = useState(today());
   const [appointmentTime, setAppointmentTime] = useState('10:00');
   const activityRef = useRef(Date.now());
+
   const selected = customers.find((c) => c.id === selectedId) || customers[0] || emptyCustomer();
   const due = customers.filter((c) => c.next <= today());
 
@@ -396,6 +430,7 @@ export default function App() {
     const t = setTimeout(() => persist(), 700);
     return () => clearTimeout(t);
   }, [customers, unlocked, sessionPassword]);
+
   useEffect(() => {
     if (!unlocked) return undefined;
     const touch = () => { activityRef.current = Date.now(); };
@@ -437,6 +472,7 @@ export default function App() {
 
   const openAdd = () => { setForm({ ...emptyCustomer(), id: Date.now(), tagText: '' }); setFamilyDraft(emptyFamily()); setModal('customer-add'); };
   const openEdit = () => { setForm({ ...selected, tagText: tagsToText(selected.tags) }); setFamilyDraft(emptyFamily()); setModal('customer-edit'); };
+
   const saveCustomer = async () => {
     if (!form.name.trim()) { setStatus('고객명을 입력해 주세요.'); return; }
     const saved = { ...form, rrn: formatRrn(form.rrn), tags: textToTags(form.tagText), family: form.family || [], logs: form.logs || [] };
@@ -452,6 +488,7 @@ export default function App() {
     setModal(null);
     setStatus('');
   };
+
   const recordAction = async (action) => {
     await setAndSave(customers.map((c) => {
       if (c.id !== selected.id) return c;
@@ -477,6 +514,7 @@ export default function App() {
     setAppointmentTime('10:00');
     setModal('appointment');
   };
+
   const saveAppointment = async () => {
     if (!appointmentDate || !appointmentTime) { setStatus('상담 날짜와 시간을 선택해 주세요.'); return; }
     await setAndSave(customers.map((c) => {
@@ -505,7 +543,12 @@ export default function App() {
     if (editingLogId) {
       await setAndSave(customers.map((c) => {
         if (c.id !== selected.id) return c;
-        return { ...c, logs: (c.logs || []).map((log) => log.id === editingLogId ? { ...logDraft, id: editingLogId, time: logDraft.time || nowTime(), title: logDraft.title || action } : log) };
+        return {
+          ...c,
+          logs: (c.logs || []).map((log) => log.id === editingLogId
+            ? { ...logDraft, id: editingLogId, time: logDraft.time || nowTime(), title: logDraft.title || action }
+            : log)
+        };
       }));
       setEditingLogId(null);
       setLogDraft(emptyLog());
@@ -520,261 +563,165 @@ export default function App() {
     }));
     setLogDraft(emptyLog());
   };
+
   const editLog = (log) => { setEditingLogId(log.id); setLogDraft({ ...emptyLog(), ...log }); setStatus('수정할 기록을 불러왔습니다.'); };
   const cancelEditLog = () => { setEditingLogId(null); setLogDraft(emptyLog()); setStatus(''); };
   const deleteLog = async (id) => {
     await setAndSave(customers.map((c) => c.id === selected.id ? { ...c, logs: (c.logs || []).filter((l) => l.id !== id) } : c));
     if (editingLogId === id) cancelEditLog();
   };
-  const copyMessage = () => { navigator.clipboard?.writeText(message); setCopied(true); setTimeout(() => setCopied(false), 1200); };
+
   const exportBackup = async () => {
     const text = JSON.stringify(await encryptObject({ customers, exportedAt: new Date().toISOString() }, sessionPassword), null, 2);
     setBackupText(text);
-    try {
-      const blob = new Blob([text], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'onyu-crm-backup-' + today() + '.json';
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-    } catch {}
-    setStatus('암호화 백업을 만들었습니다.');
-  };
-
-  const exportExcel = () => {
-    const headers = [
-      '고객명',
-      '전화번호',
-      '주민등록번호',
-      '고객나이',
-      '등급',
-      '관계온도',
-      '관계점수',
-      '상태',
-      '최초등록일',
-      '다음연락일',
-      '연락목적',
-      '태그',
-      '가족관계',
-      '가족명',
-      '가족주민번호',
-      '가족나이',
-      '가족전화번호',
-      '가족메모',
-      '최근연락일시',
-      '최근연락구분',
-      '최근연락제목',
-      '최근연락내용',
-      '상담후기',
-      '메모'
-    ];
-
-    const rows = [];
-    customers.forEach((customer) => {
-      const familyList = (customer.family && customer.family.length > 0) ? customer.family : [{}];
-      const latestLog = (customer.logs || [])[0] || {};
-      familyList.forEach((family) => {
-        rows.push([
-          customer.name || '',
-          customer.phone || '',
-          customer.rrn || '',
-          ageTextFromRrn(customer.rrn),
-          customer.grade || '',
-          customer.temp || '',
-          customer.score ?? '',
-          customer.status || '',
-          customer.registeredAt || '',
-          customer.next || '',
-          customer.topic || '',
-          (customer.tags || []).join(', '),
-          family.rel || '',
-          family.name || '',
-          family.rrn || '',
-          ageTextFromRrn(family.rrn),
-          family.phone || '',
-          family.memo || '',
-          `${latestLog.date || ''} ${latestLog.time || ''}`.trim(),
-          latestLog.kind || '',
-          latestLog.title || '',
-          latestLog.content || '',
-          customer.review || '',
-          customer.memo || ''
-        ]);
-      });
-    });
-
-    const tableRows = [
-      '<tr>' + headers.map((header) => `<th style="background:#e2e8f0;">${excelText(header)}</th>`).join('') + '</tr>',
-      ...rows.map((row) => '<tr>' + row.map(excelCell).join('') + '</tr>')
-    ].join('');
-
-    const html = `<!doctype html>
-<html>
-<head>
-<meta charset="UTF-8" />
-<style>
-table { border-collapse: collapse; font-family: Arial, sans-serif; font-size: 12px; }
-th, td { border: 1px solid #999; padding: 6px; white-space: nowrap; vertical-align: top; }
-</style>
-</head>
-<body>
-<table>${tableRows}</table>
-</body>
-</html>`;
-
-    const blob = new Blob(['\uFEFF' + html], { type: 'application/vnd.ms-excel;charset=utf-8;' });
+    const blob = new Blob([text], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = '고객정보_전체주민번호_가족분리_' + today() + '.xls';
+    a.download = 'onyu-crm-backup-' + today() + '.json';
     document.body.appendChild(a);
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
+    setStatus('암호화 백업을 만들었습니다.');
+  };
+
+  const exportExcel = () => {
+    const rows = [];
+    customers.forEach((customer) => {
+      const familyList = customer.family && customer.family.length ? customer.family : [{}];
+      const latestLog = (customer.logs || [])[0] || {};
+      familyList.forEach((family) => {
+        rows.push({
+          고객명: customer.name || '',
+          전화번호: customer.phone || '',
+          주민등록번호: customer.rrn || '',
+          고객나이: ageTextFromRrn(customer.rrn),
+          등급: customer.grade || '',
+          관계온도: customer.temp || '',
+          관계점수: customer.score ?? '',
+          상태: customer.status || '',
+          최초등록일: customer.registeredAt || '',
+          다음연락일: customer.next || '',
+          연락목적: customer.topic || '',
+          태그: (customer.tags || []).join(', '),
+          가족관계: family.rel || '',
+          가족명: family.name || '',
+          가족주민번호: family.rrn || '',
+          가족나이: ageTextFromRrn(family.rrn),
+          가족전화번호: family.phone || '',
+          가족메모: family.memo || '',
+          최근연락일시: `${latestLog.date || ''} ${latestLog.time || ''}`.trim(),
+          최근연락구분: latestLog.kind || '',
+          최근연락제목: latestLog.title || '',
+          최근연락내용: latestLog.content || '',
+          상담후기: customer.review || '',
+          메모: customer.memo || ''
+        });
+      });
+    });
+
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, '고객정보');
+    XLSX.writeFile(wb, '고객정보_전체주민번호_가족분리_' + today() + '.xlsx');
     setStatus('고객정보 엑셀 파일을 만들었습니다.');
   };
 
-  const normalizeExcelDate = (value) => {
-    if (value === undefined || value === null) return '';
-    if (typeof value === 'number' && value > 20000 && value < 80000) {
-      const parsed = XLSX.SSF.parse_date_code(value);
-      if (parsed) return `${parsed.y}-${pad(parsed.m)}-${pad(parsed.d)}`;
-    }
-    return String(value).trim();
-  };
-
-  const normalizeExcelText = (value) => {
-    if (value === undefined || value === null) return '';
-    return String(value).trim();
-  };
-
-  const customerKey = (customer) => {
-    const rrn = normalizeExcelText(customer.rrn).replace(/[^0-9]/g, '');
-    const phone = normalizeExcelText(customer.phone).replace(/[^0-9]/g, '');
-    const name = normalizeExcelText(customer.name);
-    return rrn || `${name}|${phone}`;
-  };
-
-  const importExcel = async (e) => {
-    const file = e.target.files?.[0];
+  const importExcel = async (event) => {
+    const file = event.target.files?.[0];
     if (!file) return;
-
     try {
       const buffer = await file.arrayBuffer();
-      const workbook = XLSX.read(buffer, { type: 'array', cellDates: false });
-      const sheet = workbook.Sheets[workbook.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+      const wb = XLSX.read(buffer, { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+      if (!rows.length) { setStatus('가져올 데이터가 없습니다.'); event.target.value = ''; return; }
 
-      if (!rows.length) {
-        setStatus('가져올 데이터가 없습니다.');
-        e.target.value = '';
-        return;
-      }
-
-      const groups = new Map();
-
+      const grouped = new Map();
       rows.forEach((row, index) => {
-        const name = normalizeExcelText(row['고객명']);
-        const phone = normalizeExcelText(row['전화번호']);
-        const rrn = formatRrn(row['주민등록번호'] || row['주민등록번호(마스킹)'] || '');
+        const name = asText(row.고객명);
+        const phone = asText(row.전화번호);
+        const rrn = formatRrn(row.주민등록번호 || row['주민등록번호(마스킹)'] || '');
         if (!name && !phone && !rrn) return;
+        const key = cleanRrn(rrn) || `${name}|${cleanPhone(phone)}` || String(index);
 
-        const key = (rrn.replace(/[^0-9]/g, '') || `${name}|${phone.replace(/[^0-9]/g, '')}`) || String(index);
-
-        if (!groups.has(key)) {
-          const scoreNumber = Number(row['관계점수']);
-          const logDateTime = normalizeExcelText(row['최근연락일시']);
-          const logKind = normalizeExcelText(row['최근연락구분']);
-          const logTitle = normalizeExcelText(row['최근연락제목']);
-          const logContent = normalizeExcelText(row['최근연락내용']);
-
-          let logs = [];
-          if (logDateTime || logKind || logTitle || logContent) {
-            const [datePart, timePart] = logDateTime.split(' ');
-            logs = [{
-              id: Date.now() + index,
-              date: datePart || today(),
-              time: timePart || '',
-              kind: logKind || '기타',
-              title: logTitle || logKind || '엑셀 가져오기',
-              content: logContent || ''
-            }];
-          }
-
-          groups.set(key, {
+        if (!grouped.has(key)) {
+          grouped.set(key, {
             ...emptyCustomer(),
             id: Date.now() + index,
-            registeredAt: normalizeExcelDate(row['최초등록일']) || today(),
+            registeredAt: asText(row.최초등록일) || today(),
             name,
             phone,
             rrn,
-            grade: normalizeExcelText(row['등급']) || '잠재',
-            temp: normalizeExcelText(row['관계온도']) || '보통',
-            status: normalizeExcelText(row['상태']) || '안부 필요',
-            next: normalizeExcelDate(row['다음연락일']) || addDays(7),
-            topic: normalizeExcelText(row['연락목적']),
-            tags: textToTags(row['태그']),
-            score: Number.isFinite(scoreNumber) ? scoreNumber : 30,
-            memo: normalizeExcelText(row['메모']),
-            review: normalizeExcelText(row['상담후기']),
-            lastAction: logTitle || logKind || '엑셀 가져오기',
+            grade: asText(row.등급) || '잠재',
+            temp: asText(row.관계온도) || '보통',
+            score: Number(row.관계점수) || 30,
+            status: asText(row.상태) || '안부 필요',
+            next: asText(row.다음연락일) || addDays(7),
+            topic: asText(row.연락목적),
+            tags: textToTags(row.태그),
+            review: asText(row.상담후기),
+            memo: asText(row.메모),
+            lastAction: '엑셀 가져오기',
             family: [],
-            logs
+            logs: []
           });
         }
 
-        const current = groups.get(key);
-        const familyRel = normalizeExcelText(row['가족관계']);
-        const familyName = normalizeExcelText(row['가족명']);
-        const familyRrn = formatRrn(row['가족주민번호'] || '');
-        const familyPhone = normalizeExcelText(row['가족전화번호']);
-        const familyMemo = normalizeExcelText(row['가족메모']);
+        const current = grouped.get(key);
+        const latestAt = asText(row.최근연락일시);
+        const latestKind = asText(row.최근연락구분);
+        const latestTitle = asText(row.최근연락제목);
+        const latestContent = asText(row.최근연락내용);
+        if ((latestAt || latestKind || latestTitle || latestContent) && current.logs.length === 0) {
+          const [datePart, timePart] = latestAt.split(' ');
+          current.logs.push({
+            id: Date.now() + index + 500,
+            date: datePart || today(),
+            time: timePart || '',
+            kind: latestKind || '기타',
+            title: latestTitle || latestKind || '엑셀 가져오기',
+            content: latestContent
+          });
+        }
 
-        if (familyRel || familyName || familyRrn || familyPhone || familyMemo) {
-          const familyKey = `${familyRel}|${familyName}|${familyRrn}|${familyPhone}`;
-          const exists = current.family.some((family) => `${family.rel}|${family.name}|${family.rrn}|${family.phone}` === familyKey);
-          if (!exists) {
-            current.family.push({
-              id: Date.now() + index + current.family.length + 1000,
-              rel: familyRel || '기타',
-              name: familyName,
-              rrn: familyRrn,
-              phone: familyPhone,
-              memo: familyMemo
-            });
-          }
+        const family = {
+          id: Date.now() + index + 1000 + current.family.length,
+          rel: asText(row.가족관계) || '기타',
+          name: asText(row.가족명),
+          rrn: formatRrn(row.가족주민번호 || ''),
+          phone: asText(row.가족전화번호),
+          memo: asText(row.가족메모)
+        };
+        if (family.rel !== '기타' || family.name || family.rrn || family.phone || family.memo) {
+          const familyKey = `${family.rel}|${family.name}|${cleanRrn(family.rrn)}|${cleanPhone(family.phone)}`;
+          const exists = current.family.some((f) => `${f.rel}|${f.name}|${cleanRrn(f.rrn)}|${cleanPhone(f.phone)}` === familyKey);
+          if (!exists) current.family.push(family);
         }
       });
 
-      const imported = Array.from(groups.values());
-      if (!imported.length) {
-        setStatus('가져올 고객 데이터가 없습니다.');
-        e.target.value = '';
-        return;
-      }
+      const imported = Array.from(grouped.values());
+      const existing = new Map(customers.map((c) => [(cleanRrn(c.rrn) || `${c.name}|${cleanPhone(c.phone)}`), c]));
 
-      const existingMap = new Map(customers.map((customer) => [customerKey(customer), customer]));
       imported.forEach((incoming) => {
-        const key = customerKey(incoming);
-        const existing = existingMap.get(key);
-        if (existing) {
-          existingMap.set(key, {
-            ...existing,
+        const key = cleanRrn(incoming.rrn) || `${incoming.name}|${cleanPhone(incoming.phone)}`;
+        const old = existing.get(key);
+        if (old) {
+          existing.set(key, {
+            ...old,
             ...incoming,
-            id: existing.id,
-            registeredAt: existing.registeredAt || incoming.registeredAt,
-            logs: incoming.logs.length ? incoming.logs : existing.logs,
-            family: incoming.family.length ? incoming.family : existing.family
+            id: old.id,
+            registeredAt: old.registeredAt || incoming.registeredAt,
+            family: incoming.family.length ? incoming.family : old.family,
+            logs: incoming.logs.length ? incoming.logs : old.logs
           });
         } else {
-          existingMap.set(key, incoming);
+          existing.set(key, incoming);
         }
       });
 
-      const merged = Array.from(existingMap.values());
+      const merged = Array.from(existing.values());
       await setAndSave(merged);
       setSelectedId(imported[0]?.id || merged[0]?.id || null);
       setStatus(`엑셀에서 ${imported.length}명의 고객정보를 가져왔습니다.`);
@@ -782,8 +729,7 @@ th, td { border: 1px solid #999; padding: 6px; white-space: nowrap; vertical-ali
       console.error(error);
       setStatus('엑셀 가져오기 실패: 파일 형식이나 열 이름을 확인해 주세요.');
     }
-
-    e.target.value = '';
+    event.target.value = '';
   };
 
   const importBackup = async (e) => {
@@ -800,6 +746,7 @@ th, td { border: 1px solid #999; padding: 6px; white-space: nowrap; vertical-ali
     }
     e.target.value = '';
   };
+
   const savePassword = async () => {
     if (newPw.length < 4) { setStatus('암호는 4자리 이상이어야 합니다.'); return; }
     if (newPw !== newPw2) { setStatus('암호가 서로 다릅니다.'); return; }
@@ -808,6 +755,7 @@ th, td { border: 1px solid #999; padding: 6px; white-space: nowrap; vertical-ali
     setModal(null);
     setStatus('암호가 변경되었습니다.');
   };
+
   const resetData = async () => {
     const list = sampleCustomers();
     await setAndSave(list);
@@ -827,6 +775,12 @@ th, td { border: 1px solid #999; padding: 6px; white-space: nowrap; vertical-ali
     setSelectedId(remain[0]?.id || null);
     setModal(null);
     setStatus('고객이 삭제되었습니다.');
+  };
+
+  const copyMessage = () => {
+    navigator.clipboard?.writeText(message);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1200);
   };
 
   const renderModal = () => {
@@ -852,19 +806,82 @@ th, td { border: 1px solid #999; padding: 6px; white-space: nowrap; vertical-ali
     <div className="min-h-screen bg-slate-50 p-4 text-slate-900">
       <div className="mx-auto max-w-6xl">
         <header className="mb-5 flex flex-col justify-between gap-3 md:flex-row md:items-center">
-          <div><p className="text-sm font-bold text-slate-500">🔐 암호화 고객관리 CRM</p><h1 className="text-3xl font-black">관계가 다시 살아나는 고객관리</h1>{status ? <p className="mt-1 text-sm font-bold text-emerald-700">{status}</p> : null}</div>
-          <div className="flex flex-col gap-2 md:items-end"><input className="w-full rounded-2xl border bg-white p-3 text-sm md:w-64" placeholder="상담사 이름 예: 홍길동" value={counselorName} onChange={(e) => setCounselorName(e.target.value)} /><div className="flex flex-wrap gap-2"><Button onClick={openAdd}>＋ 고객 추가</Button><Button light onClick={exportBackup}>암호화 백업</Button><Button light onClick={exportExcel}>엑셀 내보내기</Button><label className="cursor-pointer rounded-2xl border bg-white px-4 py-2.5 text-sm font-bold text-slate-700">복원<input type="file" accept="application/json" className="hidden" onChange={importBackup} /></label><Button light onClick={lockApp}>잠금</Button><Button light onClick={() => { setNewPw(''); setNewPw2(''); setModal('password'); }}>암호 변경</Button><Button light onClick={() => setModal('reset')}>초기화</Button></div></div>
+          <div>
+            <p className="text-sm font-bold text-slate-500">🔐 암호화 고객관리 CRM</p>
+            <h1 className="text-3xl font-black">관계가 다시 살아나는 고객관리</h1>
+            {status ? <p className="mt-1 text-sm font-bold text-emerald-700">{status}</p> : null}
+          </div>
+          <div className="flex flex-col gap-2 md:items-end">
+            <input className="w-full rounded-2xl border bg-white p-3 text-sm md:w-64" placeholder="상담사 이름 예: 홍길동" value={counselorName} onChange={(e) => setCounselorName(e.target.value)} />
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={openAdd}>＋ 고객 추가</Button>
+              <Button light onClick={exportBackup}>암호화 백업</Button>
+              <Button light onClick={exportExcel}>엑셀 내보내기</Button>
+              <label className="cursor-pointer rounded-2xl border bg-white px-4 py-2.5 text-sm font-bold text-slate-700">엑셀 가져오기<input type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={importExcel} /></label>
+              <label className="cursor-pointer rounded-2xl border bg-white px-4 py-2.5 text-sm font-bold text-slate-700">복원<input type="file" accept="application/json" className="hidden" onChange={importBackup} /></label>
+              <Button light onClick={lockApp}>잠금</Button>
+              <Button light onClick={() => { setNewPw(''); setNewPw2(''); setModal('password'); }}>암호 변경</Button>
+              <Button light onClick={() => setModal('reset')}>초기화</Button>
+            </div>
+          </div>
         </header>
+
         {due.length > 0 ? <div className="mb-5 rounded-3xl border border-rose-100 bg-rose-50 p-4 text-rose-800"><b>🔔 오늘 연락 대상 {due.length}명</b><p className="text-sm">{due.map((c) => c.name).join(', ')}</p></div> : null}
-        <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-4">{[['전체', customers.length, '전체 고객'], ['오늘연락', due.length, '오늘 연락'], ['VIP', customers.filter((c) => c.grade === 'VIP').length, 'VIP'], ['가족정보', customers.filter((c) => c.family.length > 0).length, '가족 정보 보유']].map(([key, value, label]) => <button key={key} type="button" onClick={() => { setQuickFilter(key); setQuery(''); setGradeFilter('전체'); }} className={(quickFilter === key ? 'ring-2 ring-slate-900 ' : '') + 'rounded-3xl bg-white p-4 text-left shadow-sm'}><b className="text-2xl">{value}</b><p className="text-sm text-slate-500">{label}</p></button>)}</div>
+
+        <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-4">
+          {[
+            ['전체', customers.length, '전체 고객'],
+            ['오늘연락', due.length, '오늘 연락'],
+            ['VIP', customers.filter((c) => c.grade === 'VIP').length, 'VIP'],
+            ['가족정보', customers.filter((c) => c.family.length > 0).length, '가족 정보 보유']
+          ].map(([key, value, label]) => (
+            <button key={key} type="button" onClick={() => { setQuickFilter(key); setQuery(''); setGradeFilter('전체'); }} className={(quickFilter === key ? 'ring-2 ring-slate-900 ' : '') + 'rounded-3xl bg-white p-4 text-left shadow-sm'}>
+              <b className="text-2xl">{value}</b>
+              <p className="text-sm text-slate-500">{label}</p>
+            </button>
+          ))}
+        </div>
+
         <main className="grid gap-5 lg:grid-cols-[1fr_1.15fr]">
-          <section><Card><div className="mb-3 flex items-center justify-between"><h2 className="font-black">고객 목록</h2><Badge color="purple">{quickFilter}</Badge></div><div className="mb-3 flex gap-2"><input className="flex-1 rounded-2xl border p-3" placeholder="검색" value={query} onChange={(e) => setQuery(e.target.value)} /><select className="rounded-2xl border p-3" value={gradeFilter} onChange={(e) => setGradeFilter(e.target.value)}><option>전체</option><option>VIP</option><option>잠재</option><option>유지</option></select></div>{pagedCustomers.map((c) => { const info = depth(c.score || 0); return <button key={c.id} type="button" onClick={() => setSelectedId(c.id)} className={(c.id === selected.id ? 'bg-slate-900 text-white ' : 'bg-white ') + 'mb-2 w-full rounded-2xl border p-3 text-left'}><div className="flex justify-between"><div><b>{c.name}</b><p className="text-xs opacity-70">{c.phone} · 가족 {c.family.length}명 · 기록 {(c.logs || []).length}건</p><p className="text-xs opacity-70">{info[0]} {info[1]}</p></div><b>{c.score}</b></div></button>; })}{totalCustomerPages > 1 ? <div className="mt-4 flex items-center justify-between rounded-2xl bg-white p-2 text-sm"><Button light onClick={() => setCustomerPage(Math.max(1, safeCustomerPage - 1))}>이전</Button><b>{safeCustomerPage} / {totalCustomerPages} 페이지</b><Button light onClick={() => setCustomerPage(Math.min(totalCustomerPages, safeCustomerPage + 1))}>다음</Button></div> : null}</Card></section>
+          <section>
+            <Card>
+              <div className="mb-3 flex items-center justify-between"><h2 className="font-black">고객 목록</h2><Badge color="purple">{quickFilter}</Badge></div>
+              <div className="mb-3 flex gap-2">
+                <input className="flex-1 rounded-2xl border p-3" placeholder="검색" value={query} onChange={(e) => setQuery(e.target.value)} />
+                <select className="rounded-2xl border p-3" value={gradeFilter} onChange={(e) => setGradeFilter(e.target.value)}><option>전체</option><option>VIP</option><option>잠재</option><option>유지</option></select>
+              </div>
+              {pagedCustomers.map((c) => {
+                const info = depth(c.score || 0);
+                return <button key={c.id} type="button" onClick={() => setSelectedId(c.id)} className={(c.id === selected.id ? 'bg-slate-900 text-white ' : 'bg-white ') + 'mb-2 w-full rounded-2xl border p-3 text-left'}><div className="flex justify-between"><div><b>{c.name}</b><p className="text-xs opacity-70">{c.phone} · 가족 {c.family.length}명 · 기록 {(c.logs || []).length}건</p><p className="text-xs opacity-70">{info[0]} {info[1]}</p></div><b>{c.score}</b></div></button>;
+              })}
+              {totalCustomerPages > 1 ? <div className="mt-4 flex items-center justify-between rounded-2xl bg-white p-2 text-sm"><Button light onClick={() => setCustomerPage(Math.max(1, safeCustomerPage - 1))}>이전</Button><b>{safeCustomerPage} / {totalCustomerPages} 페이지</b><Button light onClick={() => setCustomerPage(Math.min(totalCustomerPages, safeCustomerPage + 1))}>다음</Button></div> : null}
+            </Card>
+          </section>
+
           <section className="space-y-5">
-            <Card><div className="flex flex-col justify-between gap-3 md:flex-row"><div><h2 className="text-2xl font-black">{selected.name}</h2><p className="text-sm text-slate-500">{selected.phone}</p><div className="mt-2 flex gap-2"><Badge color={selected.grade === 'VIP' ? 'amber' : selected.grade === '잠재' ? 'blue' : 'green'}>{selected.grade}</Badge><Badge>{selected.temp}</Badge></div></div><div className="flex flex-wrap gap-2"><Button light onClick={() => recordAction('통화 완료')}>☎ 통화 완료</Button><Button onClick={openAppointment}>📅 상담 예약</Button><Button light onClick={openEdit}>✏️ 고객 수정</Button><Button light onClick={() => setModal('delete')}>🗑 고객 삭제</Button></div></div><div className="mt-4 rounded-2xl bg-slate-50 p-4"><div className="flex justify-between"><div><p className="text-sm text-slate-500">관계 깊이</p><h3 className="text-xl font-black">{d[0]} {d[1]}</h3><p className="text-sm text-slate-500">{d[2]}</p></div><b className="text-3xl">{selected.score}</b></div><div className="mt-3 h-3 rounded-full bg-white"><div className="h-3 rounded-full bg-slate-900" style={{ width: Math.min(100, selected.score || 0) + '%' }} /></div></div><div className="mt-4 grid gap-3 md:grid-cols-2"><Info title="연락 목적" value={selected.topic || '미입력'} /><Info title="다음 연락일" value={selected.next} /><Info title="최초 등록일" value={selected.registeredAt || '미입력'} /><Info title="고객 주민등록번호" value={maskRrn(selected.rrn)} sub={birthFromRrn(selected.rrn) ? birthFromRrn(selected.rrn) + ' · ' + ageTextFromRrn(selected.rrn) : '나이 자동 계산 대기'} /><Info title="최근 기록" value={selected.lastAction || '-'} /></div><div className="mt-4"><div className="mb-2 flex justify-between"><h3 className="font-black">가족 정보</h3><Badge color="purple">{selected.family.length}명</Badge></div>{selected.family.length === 0 ? <p className="rounded-2xl bg-slate-50 p-3 text-sm text-slate-500">등록된 가족 정보가 없습니다.</p> : selected.family.map((f) => <div key={f.id} className="mb-2 rounded-2xl bg-slate-50 p-3"><b>{f.rel} · {f.name || '이름 미입력'} · {ageTextFromRrn(f.rrn)}</b><p className="text-sm text-slate-500">생년월일 {birthFromRrn(f.rrn) || '미입력'}</p><p className="text-sm text-slate-500">주민등록번호 {maskRrn(f.rrn)}</p><p className="text-sm text-slate-500">전화번호 {f.phone || '미입력'}</p><p className="text-sm">{f.memo || '메모 없음'}</p></div>)}</div><div className="mt-4"><p className="text-xs text-slate-400">상담후기</p><p className="whitespace-pre-wrap">{selected.review || '상담후기 없음'}</p></div><div className="mt-4"><p className="text-xs text-slate-400">메모</p><p>{selected.memo || '메모 없음'}</p><div className="mt-2 flex flex-wrap gap-2">{(selected.tags || []).map((t) => <Badge key={t}>#{t}</Badge>)}</div></div></Card>
+            <Card>
+              <div className="flex flex-col justify-between gap-3 md:flex-row">
+                <div><h2 className="text-2xl font-black">{selected.name}</h2><p className="text-sm text-slate-500">{selected.phone}</p><div className="mt-2 flex gap-2"><Badge color={selected.grade === 'VIP' ? 'amber' : selected.grade === '잠재' ? 'blue' : 'green'}>{selected.grade}</Badge><Badge>{selected.temp}</Badge></div></div>
+                <div className="flex flex-wrap gap-2"><Button light onClick={() => recordAction('통화 완료')}>☎ 통화 완료</Button><Button onClick={openAppointment}>📅 상담 예약</Button><Button light onClick={openEdit}>✏️ 고객 수정</Button><Button light onClick={() => setModal('delete')}>🗑 고객 삭제</Button></div>
+              </div>
+              <div className="mt-4 rounded-2xl bg-slate-50 p-4"><div className="flex justify-between"><div><p className="text-sm text-slate-500">관계 깊이</p><h3 className="text-xl font-black">{d[0]} {d[1]}</h3><p className="text-sm text-slate-500">{d[2]}</p></div><b className="text-3xl">{selected.score}</b></div><div className="mt-3 h-3 rounded-full bg-white"><div className="h-3 rounded-full bg-slate-900" style={{ width: Math.min(100, selected.score || 0) + '%' }} /></div></div>
+              <div className="mt-4 grid gap-3 md:grid-cols-2"><Info title="연락 목적" value={selected.topic || '미입력'} /><Info title="다음 연락일" value={selected.next} /><Info title="최초 등록일" value={selected.registeredAt || '미입력'} /><Info title="고객 주민등록번호" value={maskRrn(selected.rrn)} sub={birthFromRrn(selected.rrn) ? birthFromRrn(selected.rrn) + ' · ' + ageTextFromRrn(selected.rrn) : '나이 자동 계산 대기'} /><Info title="최근 기록" value={selected.lastAction || '-'} /></div>
+              <div className="mt-4"><div className="mb-2 flex justify-between"><h3 className="font-black">가족 정보</h3><Badge color="purple">{selected.family.length}명</Badge></div>{selected.family.length === 0 ? <p className="rounded-2xl bg-slate-50 p-3 text-sm text-slate-500">등록된 가족 정보가 없습니다.</p> : selected.family.map((f) => <div key={f.id} className="mb-2 rounded-2xl bg-slate-50 p-3"><b>{f.rel} · {f.name || '이름 미입력'} · {ageTextFromRrn(f.rrn)}</b><p className="text-sm text-slate-500">생년월일 {birthFromRrn(f.rrn) || '미입력'}</p><p className="text-sm text-slate-500">주민등록번호 {maskRrn(f.rrn)}</p><p className="text-sm text-slate-500">전화번호 {f.phone || '미입력'}</p><p className="text-sm">{f.memo || '메모 없음'}</p></div>)}</div>
+              <div className="mt-4"><p className="text-xs text-slate-400">상담후기</p><p className="whitespace-pre-wrap">{selected.review || '상담후기 없음'}</p></div>
+              <div className="mt-4"><p className="text-xs text-slate-400">메모</p><p>{selected.memo || '메모 없음'}</p><div className="mt-2 flex flex-wrap gap-2">{(selected.tags || []).map((t) => <Badge key={t}>#{t}</Badge>)}</div></div>
+            </Card>
+
             <LogManager customer={selected} logDraft={logDraft} setLogDraft={setLogDraft} onAdd={addLog} onDelete={deleteLog} onEdit={editLog} editingLogId={editingLogId} onCancelEdit={cancelEditLog} />
-            <Card><h2 className="font-black">연락 메시지 자동 초안</h2><div className="my-3 grid grid-cols-2 gap-2 md:grid-cols-5">{Object.keys(messages).map((key) => <button key={key} type="button" onClick={() => setTemplate(key)} className={(template === key ? 'bg-slate-900 text-white ' : 'bg-slate-100 ') + 'rounded-2xl px-3 py-2 text-sm font-bold'}>{key}</button>)}</div><textarea readOnly value={message} className="min-h-[190px] w-full rounded-2xl border bg-slate-50 p-4" /><div className="mt-3"><Button onClick={copyMessage}>{copied ? '복사 완료' : '메시지 복사'}</Button></div></Card>
+
+            <Card>
+              <h2 className="font-black">연락 메시지 자동 초안</h2>
+              <div className="my-3 grid grid-cols-2 gap-2 md:grid-cols-5">{Object.keys(messages).map((key) => <button key={key} type="button" onClick={() => setTemplate(key)} className={(template === key ? 'bg-slate-900 text-white ' : 'bg-slate-100 ') + 'rounded-2xl px-3 py-2 text-sm font-bold'}>{key}</button>)}</div>
+              <textarea readOnly value={message} className="min-h-[190px] w-full rounded-2xl border bg-slate-50 p-4" />
+              <div className="mt-3"><Button onClick={copyMessage}>{copied ? '복사 완료' : '메시지 복사'}</Button></div>
+            </Card>
           </section>
         </main>
+
         {renderModal()}
         {backupText ? <Modal title="암호화 백업 생성 완료" onClose={() => setBackupText('')}><p className="text-sm text-slate-600">다운로드가 자동으로 안 되면 아래 내용을 복사해서 .json 파일로 저장해도 됩니다.</p><textarea readOnly className="mt-4 h-56 w-full rounded-2xl border p-3 text-xs" value={backupText} /><div className="mt-4 flex gap-2"><Button light className="flex-1" onClick={() => navigator.clipboard?.writeText(backupText)}>복사</Button><Button className="flex-1" onClick={() => setBackupText('')}>닫기</Button></div></Modal> : null}
       </div>
