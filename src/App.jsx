@@ -187,6 +187,10 @@ const nextDate = (action) => {
 };
 const nextTemp = (score) => (score >= 80 ? '따뜻함' : score >= 40 ? '보통' : '차가움');
 const actionFromLogKind = (kind) => ({ 문자: '메시지 발송', 통화: '통화 완료', 상담: '상담 예약', 소개요청: '소개 요청' }[kind] || '기타');
+const csvValue = (value) => {
+  const text = String(value ?? '').replace(/\r?\n/g, ' ');
+  return '"' + text.replace(/"/g, '""') + '"';
+};
 
 function Button({ children, onClick, light = false, className = '', disabled = false }) {
   const base = 'rounded-2xl px-4 py-2.5 text-sm font-bold disabled:opacity-50 ';
@@ -539,6 +543,69 @@ export default function App() {
     } catch {}
     setStatus('암호화 백업을 만들었습니다.');
   };
+
+  const exportExcel = () => {
+    const headers = [
+      '고객명',
+      '전화번호',
+      '주민등록번호(마스킹)',
+      '나이',
+      '등급',
+      '관계온도',
+      '관계점수',
+      '상태',
+      '최초등록일',
+      '다음연락일',
+      '연락목적',
+      '태그',
+      '가족정보',
+      '최근연락기록',
+      '상담후기',
+      '메모'
+    ];
+
+    const rows = customers.map((customer) => {
+      const familySummary = (customer.family || []).map((family) => {
+        return `${family.rel || ''} ${family.name || ''} ${maskRrn(family.rrn)} ${ageTextFromRrn(family.rrn)} ${family.phone || ''} ${family.memo || ''}`.trim();
+      }).join(' / ');
+
+      const recentLogs = (customer.logs || []).slice(0, 5).map((log) => {
+        return `${log.date || ''} ${log.time || ''} ${log.kind || ''} ${log.title || ''} ${log.content || ''}`.trim();
+      }).join(' / ');
+
+      return [
+        customer.name,
+        customer.phone,
+        maskRrn(customer.rrn),
+        ageTextFromRrn(customer.rrn),
+        customer.grade,
+        customer.temp,
+        customer.score,
+        customer.status,
+        customer.registeredAt,
+        customer.next,
+        customer.topic,
+        (customer.tags || []).join(', '),
+        familySummary,
+        recentLogs,
+        customer.review,
+        customer.memo
+      ];
+    });
+
+    const csv = '\uFEFF' + [headers, ...rows].map((row) => row.map(csvValue).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = '고객정보_엑셀내보내기_' + today() + '.csv';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    setStatus('고객정보 엑셀 파일을 만들었습니다.');
+  };
+
   const importBackup = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -606,7 +673,7 @@ export default function App() {
       <div className="mx-auto max-w-6xl">
         <header className="mb-5 flex flex-col justify-between gap-3 md:flex-row md:items-center">
           <div><p className="text-sm font-bold text-slate-500">🔐 암호화 고객관리 CRM</p><h1 className="text-3xl font-black">관계가 다시 살아나는 고객관리</h1>{status ? <p className="mt-1 text-sm font-bold text-emerald-700">{status}</p> : null}</div>
-          <div className="flex flex-col gap-2 md:items-end"><input className="w-full rounded-2xl border bg-white p-3 text-sm md:w-64" placeholder="상담사 이름 예: 홍길동" value={counselorName} onChange={(e) => setCounselorName(e.target.value)} /><div className="flex flex-wrap gap-2"><Button onClick={openAdd}>＋ 고객 추가</Button><Button light onClick={exportBackup}>암호화 백업</Button><label className="cursor-pointer rounded-2xl border bg-white px-4 py-2.5 text-sm font-bold text-slate-700">복원<input type="file" accept="application/json" className="hidden" onChange={importBackup} /></label><Button light onClick={lockApp}>잠금</Button><Button light onClick={() => { setNewPw(''); setNewPw2(''); setModal('password'); }}>암호 변경</Button><Button light onClick={() => setModal('reset')}>초기화</Button></div></div>
+          <div className="flex flex-col gap-2 md:items-end"><input className="w-full rounded-2xl border bg-white p-3 text-sm md:w-64" placeholder="상담사 이름 예: 홍길동" value={counselorName} onChange={(e) => setCounselorName(e.target.value)} /><div className="flex flex-wrap gap-2"><Button onClick={openAdd}>＋ 고객 추가</Button><Button light onClick={exportBackup}>암호화 백업</Button><Button light onClick={exportExcel}>엑셀 내보내기</Button><label className="cursor-pointer rounded-2xl border bg-white px-4 py-2.5 text-sm font-bold text-slate-700">복원<input type="file" accept="application/json" className="hidden" onChange={importBackup} /></label><Button light onClick={lockApp}>잠금</Button><Button light onClick={() => { setNewPw(''); setNewPw2(''); setModal('password'); }}>암호 변경</Button><Button light onClick={() => setModal('reset')}>초기화</Button></div></div>
         </header>
         {due.length > 0 ? <div className="mb-5 rounded-3xl border border-rose-100 bg-rose-50 p-4 text-rose-800"><b>🔔 오늘 연락 대상 {due.length}명</b><p className="text-sm">{due.map((c) => c.name).join(', ')}</p></div> : null}
         <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-4">{[['전체', customers.length, '전체 고객'], ['오늘연락', due.length, '오늘 연락'], ['VIP', customers.filter((c) => c.grade === 'VIP').length, 'VIP'], ['가족정보', customers.filter((c) => c.family.length > 0).length, '가족 정보 보유']].map(([key, value, label]) => <button key={key} type="button" onClick={() => { setQuickFilter(key); setQuery(''); setGradeFilter('전체'); }} className={(quickFilter === key ? 'ring-2 ring-slate-900 ' : '') + 'rounded-3xl bg-white p-4 text-left shadow-sm'}><b className="text-2xl">{value}</b><p className="text-sm text-slate-500">{label}</p></button>)}</div>
