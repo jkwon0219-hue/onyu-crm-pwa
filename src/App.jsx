@@ -481,6 +481,7 @@ export default function App() {
   const [gradeFilter, setGradeFilter] = useState('전체');
   const [customerPage, setCustomerPage] = useState(1);
   const [selectedCustomerIds, setSelectedCustomerIds] = useState([]);
+  const [selectionMode, setSelectionMode] = useState(false);
   const [familyOpen, setFamilyOpen] = useState(false);
   const [template, setTemplate] = useState('관계회복');
   const [counselorName, setCounselorName] = useState('');
@@ -592,6 +593,16 @@ export default function App() {
 
   const clearCustomerSelection = () => {
     setSelectedCustomerIds([]);
+  };
+
+  const enterSelectionMode = () => {
+    setSelectedCustomerIds([]);
+    setSelectionMode(true);
+  };
+
+  const exitSelectionMode = () => {
+    setSelectedCustomerIds([]);
+    setSelectionMode(false);
   };
 
 
@@ -862,6 +873,7 @@ export default function App() {
     const remain = customers.filter((customer) => !removeSet.has(customer.id));
     await setAndSave(remain);
     setSelectedCustomerIds([]);
+    setSelectionMode(false);
     setSelectedId((current) => removeSet.has(current) ? (remain[0]?.id || null) : current);
     setModal(null);
     setStatus(`${removeSet.size}명의 고객이 삭제되었습니다.`);
@@ -942,17 +954,22 @@ export default function App() {
 
               <div className="mb-3 flex flex-wrap gap-2">
                 <Button onClick={openAdd} className="text-xs px-3 py-2">＋ 고객 추가</Button>
-                <Button
-                  light
-                  onClick={() => selectedCustomerIds.length > 0 && setModal('bulk-delete')}
-                  disabled={selectedCustomerIds.length === 0}
-                  className="text-xs px-3 py-2"
-                >
-                  선택 삭제 {selectedCustomerIds.length > 0 ? `${selectedCustomerIds.length}명` : ''}
-                </Button>
-                {selectedCustomerIds.length > 0 ? (
-                  <Button light onClick={clearCustomerSelection} className="text-xs px-3 py-2">선택 해제</Button>
-                ) : null}
+
+                {!selectionMode ? (
+                  <Button light onClick={enterSelectionMode} className="text-xs px-3 py-2">선택</Button>
+                ) : (
+                  <>
+                    <Button
+                      light
+                      onClick={() => selectedCustomerIds.length > 0 && setModal('bulk-delete')}
+                      disabled={selectedCustomerIds.length === 0}
+                      className="text-xs px-3 py-2"
+                    >
+                      선택 삭제 {selectedCustomerIds.length > 0 ? `${selectedCustomerIds.length}명` : ''}
+                    </Button>
+                    <Button light onClick={exitSelectionMode} className="text-xs px-3 py-2">선택 취소</Button>
+                  </>
+                )}
               </div>
 
               <div className="mb-3 flex gap-2">
@@ -965,7 +982,7 @@ export default function App() {
                 </select>
               </div>
 
-              {pagedCustomers.length > 0 ? (
+              {selectionMode && pagedCustomers.length > 0 ? (
                 <label className="mb-2 flex items-center gap-2 rounded-2xl bg-slate-50 p-3 text-sm font-bold text-slate-600">
                   <input type="checkbox" checked={allPagedSelected} onChange={toggleSelectPagedCustomers} />
                   현재 페이지 전체 선택
@@ -980,12 +997,15 @@ export default function App() {
                     key={c.id}
                     className={(c.id === selected.id ? 'bg-slate-900 text-white ' : 'bg-white ') + 'mb-2 flex w-full items-center gap-3 rounded-2xl border p-3'}
                   >
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={() => toggleCustomerSelection(c.id)}
-                      className="h-4 w-4 shrink-0"
-                    />
+                    {selectionMode ? (
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleCustomerSelection(c.id)}
+                        className="h-4 w-4 shrink-0"
+                      />
+                    ) : null}
+
                     <button type="button" onClick={() => setSelectedId(c.id)} className="flex-1 text-left">
                       <div className="flex justify-between gap-2">
                         <div>
