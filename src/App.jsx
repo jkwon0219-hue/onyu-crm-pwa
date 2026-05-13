@@ -830,102 +830,216 @@ export default function App() {
   const importExcel = async (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
+
     try {
       const buffer = await file.arrayBuffer();
-      const wb = XLSX.read(buffer, { type: 'array' });
-      const ws = wb.Sheets[wb.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
-      if (!rows.length) { setStatus('가져올 데이터가 없습니다.'); event.target.value = ''; return; }
+      const workbook = XLSX.read(buffer, { type: 'array' });
 
-      const grouped = new Map();
-      rows.forEach((row, index) => {
-        const name = asText(row.고객명);
-        const phone = formatPhone(row.전화번호);
-        const rrn = formatRrn(row.주민등록번호 || row['주민등록번호(마스킹)'] || '');
-        if (!name && !phone && !rrn) return;
-        const key = cleanRrn(rrn) || `${name}|${cleanPhone(phone)}` || String(index);
+      const rowsFromSheet = (sheetName, fallbackIndex = 0) => {
+        const sheet = workbook.Sheets[sheetName] || workbook.Sheets[workbook.SheetNames[fallbackIndex]];
+        return sheet ? XLSX.utils.sheet_to_json(sheet, { defval: '' }) : [];
+      };
 
-        if (!grouped.has(key)) {
-          grouped.set(key, {
+      const customerRows = rowsFromSheet('고객정보', 0);
+      const familyRows = workbook.Sheets['가족정보'] ? rowsFromSheet('가족정보') : [];
+      const logRows = workbook.Sheets['문자연락기록'] ? rowsFromSheet('문자연락기록') : [];
+
+      if (!customerRows.length) {
+        setStatus('가져올 고객정보가 없습니다.');
+        event.target.value = '';
+        return;
+      }
+
+      const normalizeId = (value) => asText(value).replace(/\.0$/, '');
+      const scoreFromExcel = (value) => {
+        const parsed = Number(String(value || '').replace(/[^0-9.]/g, ''));
+        return Number.isFinite(parsed) && parsed > 0 ? parsed : 30;
+      };
+      const dateFromExcel = (value) => {
+        if (value === undefined || value === null || value === '') return '';
+        if (typeof value === 'number' && value > 20000 && value < 90000) {
+          const parsed = XLSX.SSF.parse_date_code(value);
+          if (parsed) return `${parsed.y}-${pad(parsed.m)}-${pad(parsed.d)}`;
+        }
+        return asText(value);
+      };
+
+      const existingById = new Map(customers.map((customer) => [String(customer.id), customer]));
+      const existingByRrn = new Map();
+      const existingByNamePhone = new Map();
+      const nameCounts = new Map();
+
+      customers.forEach((customer) => {
+        const rrnKey = cleanRrn(customer.rrn);
+        const nameKey = asText(customer.name);
+        const phoneKey = cleanPhone(customer.phone);
+        if (rrnKey) existingByRrn.set(rrnKey, customer);
+        if (nameKey && phoneKey) existingByNamePhone.set(`${nameKey}|${phoneKey}`, customer);
+        if (nameKey) nameCounts.set(nameKey, (nameCounts.get(nameKey) || 0) + 1);
+      });
+
+      const existingByUniqueName = new Map();
+      customers.forEach((customer) => {
+        const nameKey = asText(customer.name);
+        if (nameKey && nameCounts.get(nameKey) === 1) {
+          existingByUniqueName.set(nameKey, customer);
+        }
+      });
+
+      const findExistingCustomer = (row) => {
+        const rowId = normalizeId(row.고객ID);
+        const rrnKey = cleanRrn(row.주민등록번호 || row['주민등록번호(마스킹)'] || '');
+        const nameKey = asText(row.고객명);
+        const phoneKey = cleanPhone(row.전화번호 || row.고객전화번호 || '');
+
+        if (rowId && existingById.has(rowId)) return existingById.get(rowId);
+        if (rrnKey && existingByRrn.has(rrnKey)) return existingByRrn.get(rrnKey);
+        if (nameKey && phoneKey && existingByNamePhone.has(`${nameKey}|${phoneKey}`)) return existingByNamePhone.get(`${nameKey}|${phoneKey}`);
+        if (nameKey && existingByUniqueName.has(nameKey)) return existingByUniqueName.get(nameKey);
+        return null;
+      };
+
+      const importedByInternalId = new Map();
+
+      const ensureImportedCustomer = (row, index = 0) => {
+        const existing = findExistingCustomer(row);
+        const rowId = normalizeId(row.고객ID);
+        const internalId = existing?.id || (rowId ? Number(rowId) || rowId : Date.now() + index);
+        const mapKey = String(internalId);
+
+        if (!importedByInternalId.has(mapKey)) {
+          const rrn = formatRrn(row.주민등록번호 || row['주민등록번호(마스킹)'] || existing?.rrn || '');
+          const phone = formatPhone(row.전화번호 || row.고객전화번호 || existing?.phone || '');
+          const importedCustomer = {
             ...emptyCustomer(),
-            id: Date.now() + index,
-            registeredAt: asText(row.최초등록일) || today(),
-            name,
+            ...(existing || {}),
+            id: internalId,
+            registeredAt: dateFromExcel(row.최초등록일) || existing?.registeredAt || today(),
+            name: asText(row.고객명) || existing?.name || '',
             phone,
             rrn,
-            grade: asText(row.등급) || '잠재',
-            temp: asText(row.관계온도) || '보통',
-            score: Number(String(row.관계점수 || '').replace(/[^0-9.]/g, '')) || 30,
-            status: asText(row.상태) || '안부 필요',
-            next: asText(row.다음연락일) || addDays(7),
-            topic: '',
-            tags: textToTags(row.태그),
-            memo: asText(row.메모),
-            lastAction: '엑셀 가져오기',
+            grade: asText(row.등급) || existing?.grade || '잠재',
+            temp: existing?.temp || '보통',
+            score: scoreFromExcel(row.관계온도 || row.관계점수 || existing?.score),
+            status: asText(row.상태) || existing?.status || '안부 필요',
+            next: dateFromExcel(row.다음연락일) || existing?.next || addDays(7),
+            topic: existing?.topic || '',
+            tags: textToTags(row.태그 || '') || existing?.tags || [],
+            memo: asText(row.메모) || existing?.memo || '',
+            lastAction: asText(row.최근기록) || existing?.lastAction || '엑셀 가져오기',
             family: [],
             logs: []
-          });
+          };
+          importedByInternalId.set(mapKey, importedCustomer);
         }
 
-        const current = grouped.get(key);
-        const latestAt = asText(row.최근연락일시);
-        const latestKind = asText(row.최근연락구분);
-        const latestContent = asText(row.최근연락내용);
-        if ((latestAt || latestKind || latestContent) && current.logs.length === 0) {
-          const [datePart, timePart] = latestAt.split(' ');
-          current.logs.push({
-            id: Date.now() + index + 500,
-            date: datePart || today(),
-            time: timePart || '',
-            kind: latestKind || '기타',
-            title: latestKind || '엑셀 가져오기',
-            content: latestContent
-          });
-        }
+        return importedByInternalId.get(mapKey);
+      };
+
+      customerRows.forEach((row, index) => {
+        const hasData = asText(row.고객ID) || asText(row.고객명) || asText(row.전화번호) || asText(row.주민등록번호);
+        if (hasData) ensureImportedCustomer(row, index);
+      });
+
+      familyRows.forEach((row, index) => {
+        const customer = ensureImportedCustomer({
+          고객ID: row.고객ID,
+          고객명: row.고객명,
+          전화번호: row.고객전화번호
+        }, index + 10000);
 
         const family = {
-          id: Date.now() + index + 1000 + current.family.length,
+          id: Date.now() + index + 1000 + customer.family.length,
           rel: asText(row.가족관계) || '기타',
           name: asText(row.가족명),
           rrn: formatRrn(row.가족주민번호 || ''),
           phone: formatPhone(row.가족전화번호),
           memo: asText(row.가족메모)
         };
+
         if (family.rel !== '기타' || family.name || family.rrn || family.phone || family.memo) {
           const familyKey = `${family.rel}|${family.name}|${cleanRrn(family.rrn)}|${cleanPhone(family.phone)}`;
-          const exists = current.family.some((f) => `${f.rel}|${f.name}|${cleanRrn(f.rrn)}|${cleanPhone(f.phone)}` === familyKey);
-          if (!exists) current.family.push(family);
+          const exists = customer.family.some((item) => `${item.rel}|${item.name}|${cleanRrn(item.rrn)}|${cleanPhone(item.phone)}` === familyKey);
+          if (!exists) customer.family.push(family);
         }
       });
 
-      const imported = Array.from(grouped.values());
-      const existing = new Map(customers.map((c) => [(cleanRrn(c.rrn) || `${c.name}|${cleanPhone(c.phone)}`), c]));
+      logRows.forEach((row, index) => {
+        const customer = ensureImportedCustomer({
+          고객ID: row.고객ID,
+          고객명: row.고객명,
+          전화번호: row.고객전화번호
+        }, index + 20000);
+
+        const log = {
+          id: Date.now() + index + 3000 + customer.logs.length,
+          date: dateFromExcel(row.날짜) || today(),
+          time: asText(row.시간),
+          kind: asText(row.구분) || '기타',
+          title: '',
+          content: asText(row.내용)
+        };
+
+        if (log.date || log.time || log.kind || log.content) {
+          const logKey = `${log.date}|${log.time}|${log.kind}|${log.content}`;
+          const exists = customer.logs.some((item) => `${item.date}|${item.time}|${item.kind}|${item.content}` === logKey);
+          if (!exists) customer.logs.push(log);
+        }
+      });
+
+      // 구버전 엑셀 파일에 최근연락기록만 있는 경우를 위한 보완
+      customerRows.forEach((row, index) => {
+        const customer = ensureImportedCustomer(row, index);
+        const latestAt = asText(row.최근연락일시);
+        const latestKind = asText(row.최근연락구분);
+        const latestContent = asText(row.최근연락내용);
+        if ((latestAt || latestKind || latestContent) && customer.logs.length === 0) {
+          const [datePart, timePart] = latestAt.split(' ');
+          customer.logs.push({
+            id: Date.now() + index + 9000,
+            date: datePart || today(),
+            time: timePart || '',
+            kind: latestKind || '기타',
+            title: '',
+            content: latestContent
+          });
+        }
+      });
+
+      const imported = Array.from(importedByInternalId.values());
+      if (!imported.length) {
+        setStatus('가져올 고객 데이터가 없습니다.');
+        event.target.value = '';
+        return;
+      }
+
+      const importedIds = new Set(imported.map((customer) => String(customer.id)));
+      const merged = customers.map((existingCustomer) => {
+        const incoming = importedByInternalId.get(String(existingCustomer.id));
+        if (!incoming) return existingCustomer;
+        return {
+          ...existingCustomer,
+          ...incoming,
+          id: existingCustomer.id,
+          registeredAt: incoming.registeredAt || existingCustomer.registeredAt,
+          family: incoming.family.length ? incoming.family : existingCustomer.family,
+          logs: incoming.logs.length ? incoming.logs : existingCustomer.logs
+        };
+      });
 
       imported.forEach((incoming) => {
-        const key = cleanRrn(incoming.rrn) || `${incoming.name}|${cleanPhone(incoming.phone)}`;
-        const old = existing.get(key);
-        if (old) {
-          existing.set(key, {
-            ...old,
-            ...incoming,
-            id: old.id,
-            registeredAt: old.registeredAt || incoming.registeredAt,
-            family: incoming.family.length ? incoming.family : old.family,
-            logs: incoming.logs.length ? incoming.logs : old.logs
-          });
-        } else {
-          existing.set(key, incoming);
-        }
+        const alreadyExists = customers.some((customer) => String(customer.id) === String(incoming.id));
+        if (!alreadyExists) merged.push(incoming);
       });
 
-      const merged = Array.from(existing.values());
       await setAndSave(merged);
       setSelectedId(imported[0]?.id || merged[0]?.id || null);
-      setStatus(`엑셀에서 ${imported.length}명의 고객정보를 가져왔습니다.`);
+      setStatus(`엑셀에서 ${imported.length}명의 고객정보를 반영했습니다. 기존 고객은 새로 만들지 않고 수정했습니다.`);
     } catch (error) {
       console.error(error);
       setStatus('엑셀 가져오기 실패: 파일 형식이나 열 이름을 확인해 주세요.');
     }
+
     event.target.value = '';
   };
 
